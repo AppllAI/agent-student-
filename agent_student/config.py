@@ -93,7 +93,10 @@ def profil_texte() -> str:
     """Le profil (tiré du CV) + tes disponibilités déclarées : c'est la SEULE source de vérité des messages.
     Les disponibilités en font partie, pour que le Juge puisse vérifier « disponible le samedi » contre ce que tu as dit."""
     f = PROFIL_DIR / "profil.md"
-    texte = f.read_text(encoding="utf-8") if f.exists() else ""
+    try:
+        texte = f.read_text(encoding="utf-8") if f.exists() else ""
+    except UnicodeDecodeError:              # fiche modifiée à la main avec le Bloc-notes (Windows)
+        texte = f.read_bytes().decode("cp1252", errors="replace")
     if not texte.strip():
         return ""
     dom = domaine_actif()

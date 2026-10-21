@@ -65,7 +65,8 @@ class Circuit(unittest.TestCase):
         cv.write_bytes(b"%PDF-1.4 faux")
         concierge.recevoir(Entrant(fichier=cv, nom_fichier="mon_cv.pdf"))
         self.assertTrue(config.chemin_cv().exists())
-        (config.PROFIL_DIR / "profil.md").write_text("# Profil\n- Nom : Alex Test\n- Bachelier en sciences éco ULB\n- Caissier, Delhaize Ixelles\n")
+        (config.PROFIL_DIR / "profil.md").write_text("# Profil\n- Nom : Alex Test\n- Bachelier en sciences éco ULB\n- Caissier, Delhaize Ixelles\n",
+                                                      encoding="utf-8")
         concierge.recevoir(Entrant(texte="Je veux que de la vente à Bruxelles, pas d'horeca, dispo le samedi"))
         dom = config.domaine_actif()
         self.assertEqual(dom["secteurs_uniquement"], ["vente"])
