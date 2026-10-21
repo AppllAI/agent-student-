@@ -29,7 +29,7 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, pkg: node20-win-x64, ext: .exe, nom: Windows }
-          - { os: macos-latest, pkg: node20-macos-arm64, ext: "", nom: Mac }
+          - { os: macos-14, pkg: node20-macos-arm64, ext: "", nom: Mac }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
