@@ -10,7 +10,12 @@ SCHEMA = {
     "type": "object",
     "properties": {"notes": {"type": "array", "items": {
         "type": "object",
-        "properties": {"id": {"type": "integer"}, "regle_violee": {"type": "boolean"},
+        "properties": {"id": {"type": "integer"},
+                       "regle": {"type": ["string", "null"], "enum": [
+                           "secteur_exclu", "hors_secteurs_voulus", "ville", "langue_exigee", "horaires_impossibles",
+                           "trop_d_heures", "permis_vehicule", "pas_un_job_etudiant", None],
+                           "description": "la règle STRICTE clairement violée, sinon null"},
+                       "regle_violee": {"type": "boolean"},
                        "score": {"type": "integer", "minimum": 1, "maximum": 10}, "raison": {"type": "string"},
                        "pourquoi": {"type": "array", "items": {"type": "string"}, "maxItems": 3,
                                     "description": "2-3 liens concrets entre CE profil et CETTE offre"}},
@@ -62,6 +67,10 @@ def evaluer(taille_lot: int = 8):
             if oid not in {o["id"] for o in lot} or oid in notees:
                 continue
             notees.add(oid)
+            if n.get("regle_violee") and not n.get("regle"):
+                # « violation » sans règle précise = hésitation de l'IA (vu en vrai : « le motif ne tient pas »)
+                n["regle_violee"] = False
+                score = max(score, regles["score_minimum"])
             ok = not n.get("regle_violee") and score >= regles["score_minimum"]
             db.changer_statut(oid, "qualifiee" if ok else "ecartee", "evaluateur",
                               f"{score}/10 · {n.get('raison') or ''}", score=score,

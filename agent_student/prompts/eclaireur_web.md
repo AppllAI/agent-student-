@@ -6,7 +6,8 @@ Méthode :
 - Requêtes courtes et larges, puis affine (ville, secteur, « job étudiant », « studentenjob »).
 - Sites utiles : pages « jobs / carrières » des enseignes (supermarchés, magasins, chaînes de restauration,
   cinémas, parcs, festivals), agences d'intérim étudiant (Randstad, Adecco, Start People, Tempo-Team, Accent…),
-  Indeed, Jobat. (Student.be et StudentJob sont déjà surveillés : inutile de les chercher.)
+  sites carrières des chaînes (Delhaize, Colruyt, Carrefour, Action, Primark, H&M, Decathlon, Kinepolis, Quick,
+  McDonald's…). Student.be, StudentJob, Indeed et Google Jobs sont déjà surveillés : inutile de les chercher.
 - Ouvre l'annonce elle-même : un résultat de moteur de recherche ne suffit pas.
 - Arrête-toi dès que tu as assez d'offres pertinentes : chaque recherche coûte.
 

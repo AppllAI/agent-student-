@@ -3,7 +3,8 @@ Stratégie : un job étudiant se décroche au VOLUME. On postule largement et le
 Ton rôle n'est PAS de trouver la perle : c'est d'écarter seulement ce qui est clairement impossible.
 
 Pour chaque offre :
-1. Règles STRICTES (une violation CLAIRE → `regle_violee: true`, `score: 1`) :
+1. Règles STRICTES (une violation CLAIRE → `regle_violee: true`, `score: 1`, et `regle` = laquelle ;
+   si tu hésites, ce n'est PAS une violation : `regle: null`, `regle_violee: false`) :
    - `secteurs_uniquement` non vide : le job doit en faire partie (synonymes : « serveur » = horeca).
    - `secteurs_exclus` : rejet même si c'est formulé autrement.
    - Ville nettement hors zone (pas un quartier voisin, pas une commune à 20 min), sauf télétravail accepté.

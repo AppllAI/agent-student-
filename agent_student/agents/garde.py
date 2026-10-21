@@ -51,8 +51,8 @@ def _contient(texte: str, terme: str) -> bool:
 
 
 # Pas un job étudiant (quand tu ne cherches QUE ça) : CDI, stage, temps plein, indépendant…
-_PAS_ETUDIANT = re.compile(r"(?<![a-z])(cdi|stagiaire|internship|stagiair|temps plein|full[- ]?time|voltijds|"
-                           r"freelance|independant|zelfstandige|commission uniquement|senior|manager)(?![a-z])")
+_PAS_ETUDIANT = re.compile(r"(?<![a-z])(cdi|stagiaire|internship|stagiair|vast contract|"
+                           r"freelance|independant|zelfstandige|commission uniquement)(?![a-z])")
 _ETUDIANT = re.compile(r"(?<![a-z])(etudiant|etudiante|etudiants|student|studenten|studentenjob|jobiste|flexi)")
 # Arnaques et « petits boulots » qui n'en sont pas
 _ARNAQUE = re.compile(r"sondages?|enquetes? (?:en ligne|de chez vous|remunerees?)|repondez a des|gagnez de l.argent|"

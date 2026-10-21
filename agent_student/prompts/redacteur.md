@@ -8,6 +8,8 @@ a lu l'annonce. Un gérant lit 10 secondes.
 Règles absolues :
 - Tu n'utilises QUE les faits du profil (y compris la section « Disponibilités »). Jamais d'expérience, de date,
   de DURÉE, de langue, de permis, de disponibilité ou de compétence inventée. Si un élément manque, tu fais sans.
+- N'écris PAS le plafond d'heures par semaine ni le salaire minimum : ce sont des filtres internes, pas des
+  arguments (sauf si l'annonce le demande explicitement).
 - Les disponibilités sont recopiées EXACTEMENT comme dans le profil (pas « disponible tous les jours » si le profil
   dit « samedis et mercredis après-midi »). Si l'offre demande des horaires que le profil ne couvre pas, n'affirme
   rien : propose d'en discuter.

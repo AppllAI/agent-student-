@@ -77,8 +77,23 @@ def _enrichir_une(o: dict):
 
     if not o.get("mode_candidature") or o["mode_candidature"] == "inconnu":
         o["mode_candidature"] = "email" if o.get("email_contact") else "formulaire"
-    if not o.get("description") and not o.get("titre"):
-        db.changer_statut(o["id"], "ecartee", "extracteur", "offre illisible")
+    if not o.get("description") or not o.get("entreprise"):
+        # Sans l'annonce (page pas chargée) ni l'employeur, on écrirait une lettre à l'aveugle : NON.
+        # On réessaie aux 2 prochains passages (site lent, coupure), puis on laisse tomber.
+        essais = (o.get("tentatives") or 0) + 1
+        if essais >= 3:
+            db.changer_statut(o["id"], "ecartee", "extracteur", "annonce illisible (page inaccessible)")
+        else:
+            db.maj(o["id"], tentatives=essais)
         return
-    db.changer_statut(o["id"], "enrichie", "extracteur",
+    # Même offre vue sur 2 sites (Student.be + StudentJob…) : maintenant qu'on connaît l'employeur, on le voit
+    cle = outils.cle_offre(o["url"], o.get("entreprise"), o.get("titre"))
+    try:
+        if db.q1("SELECT 1 FROM offres WHERE cle=? AND id<>?", cle, o["id"]):
+            raise ValueError("doublon")
+        db.maj(o["id"], cle=cle)
+    except Exception:             # doublon (y compris deux lectures en parallèle de la même offre)
+        db.changer_statut(o["id"], "ecartee", "extracteur", "doublon : déjà vue sur un autre site")
+        return
+    db.changer_statut(o["id"], "enrichie", "extracteur", tentatives=0,
                       **{k: o.get(k) for k in (*CLES, "mode_candidature")})

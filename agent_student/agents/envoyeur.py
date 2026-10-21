@@ -97,8 +97,10 @@ def expedier(m: EmailMessage):
         s.send_message(m)
 
 
-def _formulaire(o):
+def _formulaire(o, seul: bool = True):
     db.changer_statut(o["id"], "manuelle", "envoyeur", "candidature via le site de l'employeur")
+    if not seul:
+        return
     messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site. Ta lettre est prête "
                     f"(PDF ci-dessous) : ouvre le lien, colle-la, envoie.\n{o['url']}",
                     [[("✅ C'est fait", f"fait {o['id']}"), ("❌ Laisser tomber", f"ecarte {o['id']}")]])
@@ -111,7 +113,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
     Rien sur ta messagerie. Mode réel : envoi aux employeurs, aux heures ouvrables, au rythme humain."""
     regles = config.regles_envoi()
     reels = set(db.kv_get("envoi_reel_ids", []))   # « vrai 12 » pendant le test
-    envoyees = 0
+    envoyees, via_site = 0, []
     offres = [dict(o) for o in db.q("SELECT * FROM offres WHERE statut='validee' "
                                     "ORDER BY COALESCE(publie_le, date(cree_le)) DESC, score DESC")]
     for o in offres:
@@ -119,7 +121,8 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
         soucis = controle.problemes(o) if o["email_contact"] or repetition else []
         if not repetition:
             if not o["email_contact"]:
-                _formulaire(o)
+                via_site.append(o)
+                _formulaire(o, seul=len(via_site) <= 3)   # au-delà de 3 : une seule liste à la fin
                 continue
             if soucis:
                 db.changer_statut(o["id"], "a_valider", "controleur", "à relire : contrôle — " + " ; ".join(soucis))
@@ -164,4 +167,8 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
         envoyees += 1
         if not repetition and not config.simulation():
             time.sleep(random.randint(*pause_secondes))  # rythme humain, évite les filtres anti-spam
+    if len(via_site) > 3:
+        messagerie.dire(f"🌐 Et {len(via_site) - 3} autres se postulent sur leur site (lettre prête pour chacune) :\n"
+                        + "\n".join(f"*{o['id']}.* {o['entreprise'] or o['titre']} — {o['url']}" for o in via_site[3:20])
+                        + "\n« montre 12 » pour la lettre · « fait 12 » quand c'est envoyé.")
     return envoyees

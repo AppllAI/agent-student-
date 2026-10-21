@@ -22,7 +22,7 @@ SCHEMA = {
     "properties": {
         "action": {"type": "string", "enum": [
             "valider", "ecarter", "details", "confirmer_rdv", "autre_date", "decliner_rdv", "repondre_recruteur",
-            "objectif", "profil", "style", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre",
+            "objectif", "profil", "style", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre", "vrai_tout",
             "aide", "discuter"]},
         "ids": {"type": "array", "items": {"type": "integer"}},
         "rdv_id": {"type": ["integer", "null"]}, "creneau": {"type": ["string", "null"]},
@@ -131,6 +131,8 @@ def _raccourci(t: str) -> bool:
         details(_ids(b)[0])
     elif re.fullmatch(r"fait\s+[\d ,et]+", b):
         _fait(_ids(b))
+    elif b in ("vrai tout", "envoie tout pour de vrai", "tout pour de vrai"):
+        _vrai_tout()
     elif re.fullmatch(r"vrai\s+\d+", b):
         _vrai(_ids(b)[0])
     elif re.fullmatch(r"(ecarte|non|retire)\s+[\d ,et]+", b):
@@ -219,6 +221,8 @@ def _ia(texte: str):
             return messagerie.dire(coach.MENU)
         elif a == "pause":
             return pause(d.get("jusqu_au"), d.get("reponse"))
+        elif a == "vrai_tout":
+            return _vrai_tout()
         elif a in ("stats", "reprendre"):
             return _raccourci(a)
     except Exception as e:
@@ -305,6 +309,24 @@ def _changer_mode(mode: str):
     o.setdefault("envoi", {})["mode"] = mode
     config.sauver_objectif(o)
     messagerie.dire(MODES[mode])
+    if mode != "repetition":
+        n = db.q1("SELECT COUNT(*) AS n FROM offres WHERE statut='repetee' AND date(envoye_le) >= date('now', '-14 days')")["n"]
+        if n:
+            messagerie.dire(f"Tu as {n} candidature(s) testée(s) ces 14 derniers jours (celles reçues par email). "
+                            "Je les envoie pour de vrai aux employeurs ?",
+                            [[(f"🚀 Oui, les {n}", "vrai tout"), ("Non", "aide")]])
+
+
+def _vrai_tout():
+    ids = [r["id"] for r in db.q("SELECT id FROM offres WHERE statut='repetee' AND date(envoye_le) >= date('now', '-14 days')")]
+    if not ids:
+        return messagerie.dire("Aucune candidature testée récente à envoyer.")
+    db.kv_set("envoi_reel_ids", sorted(set(db.kv_get("envoi_reel_ids", [])) | set(ids)))
+    for i in ids:
+        db.changer_statut(i, "validee", "concierge", "envoi réel demandé")
+    messagerie.dire(f"🚀 OK : {len(ids)} candidature(s) partent pour de vrai, une par une, aux heures ouvrables.")
+    from .. import orchestrateur
+    orchestrateur.envoyer_bientot()
 
 
 def _vrai(i):

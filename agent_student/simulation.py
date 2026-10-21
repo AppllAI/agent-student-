@@ -42,7 +42,7 @@ def repondre(agent: str, contenu: str, schema: dict) -> dict:
         notes = []
         for o in d:
             ok = "vente" in (o.get("secteur") or "")
-            notes.append({"id": o["id"], "regle_violee": False, "score": 9 if ok else 5,
+            notes.append({"id": o["id"], "regle": None, "regle_violee": False, "score": 9 if ok else 5,
                           "raison": "Secteur, ville et horaires alignés" if ok else "Secteur secondaire",
                           "pourquoi": ["Job de caissier chez Delhaize ↔ tenue de caisse"] if ok else []})
         return {"notes": notes}

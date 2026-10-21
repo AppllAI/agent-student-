@@ -39,7 +39,7 @@ SCHEMA_OFFRES = {
 # ---------- Listes d'annonces (Student.be, StudentJob…) : sans IA ----------
 # Un lien d'annonce = une URL dont le chemin ressemble à ces motifs (pas les pages de liste ni de recherche)
 MOTIFS_ANNONCE = (
-    r"student\.be/(?:fr|nl|en)/(?:jobs-etudiants|studentenjobs|student-jobs)/[a-z0-9]+(?:-[a-z0-9]+){2,}/?$",
+    r"student\.be/(?:fr|nl|en)/(?:jobs-etudiants|studentenjobs|student-jobs)/[a-z0-9]+(?:-[a-z0-9]+){3,}/?$",
     r"studentjob\.be/(?:offre|vacatures?)/\d+-[a-z0-9-]+/?$",
     r"/(?:offre|offres|job|jobs|emploi|vacature|vacatures)/[^/?#]*\d{3,}[^/?#]*/?$",
 )
@@ -53,6 +53,7 @@ def _liens_annonces(page: str, base: str) -> list[tuple[str, str]]:
 
     vus, sortie = set(), []
     liens = re.findall(r"""<a\b[^>]*?href\s*=\s*["']([^"'#]+)["'][^>]*>(.*?)</a>""", page, re.S | re.I)
+    liens += [(u, t) for t, u in re.findall(r"\[([^\]]{0,400})\]\((https?://[^)\s]+)\)", page)]   # texte Markdown
     # Pages construites en JavaScript : les liens sont dans des données JSON, pas dans des <a>
     liens += [(u.replace("\\/", "/"), "") for u in
               re.findall(r"""["']((?:https?:\\?/\\?/[a-z0-9.-]+)?(?:\\?/[a-z0-9_.-]+){2,6}\\?/?)["']""", page, re.I)]
@@ -67,6 +68,7 @@ def _liens_annonces(page: str, base: str) -> list[tuple[str, str]]:
                          titre, maxsplit=1, flags=re.I)[0].strip()
         if len(titre) < 4 or len(titre) > 90:
             slug = url.rstrip("/").rsplit("/", 1)[-1]
+            slug = re.sub(r"(?:-[0-9a-f]{4,12}){3,}$", "", slug)        # identifiant technique en fin d'adresse
             titre = re.sub(r"^\d+-", "", slug).replace("-", " ").strip().capitalize()
         vus.add(url)
         sortie.append((url, titre[:160]))
@@ -185,7 +187,7 @@ def _une_requete(requete: str, dom: dict, connues: list) -> list[dict]:
                           "secteurs_exclus": dom.get("secteurs_exclus"), "langues": dom.get("langues"),
                           "deja_connues": connues, "nombre_max": 10}, ensure_ascii=False)
     r = llm.demander("eclaireur", "rapide", llm.prompt("eclaireur_web"), contenu, SCHEMA_OFFRES,
-                     web=True, recherches_max=3, max_tokens=4000, priorite="fond")
+                     web=True, recherches_max=2, max_tokens=4000, priorite="fond")
     offres = [{**o, "source": "web"} for o in r.get("offres", [])]
     bonnes = [o for o in offres if annonce_precise(o)]
     if len(bonnes) < len(offres):

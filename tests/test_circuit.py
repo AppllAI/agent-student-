@@ -238,6 +238,15 @@ class ListesEtudiantes(unittest.TestCase):
             ("https://fr.studentjob.be/offre/4567-hote-accueil", "Hote accueil")])
 
 
+    def test_vraie_page_student_be(self):           # extrait réel (octobre 2026) : carte entière dans le lien
+        u = "https://www.student.be/fr/jobs-etudiants/exki-job-etudiant-equipier-e-exki-arts-loi-de83cd2d-4c31-4917-9cc2-fb1718cd87d5/"
+        page = (f"[Travailler en tant que étudiant chez EXKiEXKiEXKiJob étudiant - Equipier(e) - EXKI ARTS-LOIEn semaine"
+                f"VacancesWeekendBruxelles79]({u})\n[umbrella-beach Job d'été](https://www.student.be/fr/jobs-etudiants/job-d-ete/)"
+                f'\n<a class="card" href="{u.replace("arts-loi", "tongres")}">Equipier</a>')
+        liens = sources._liens_annonces(page, "https://www.student.be/fr/bruxelles/jobs-etudiants/")
+        self.assertEqual([x[0] for x in liens], [u.replace("arts-loi", "tongres"), u])   # pas la catégorie
+        self.assertEqual(dict((a, b) for a, b in liens)[u], "Exki job etudiant equipier e exki arts loi")
+
     def test_liens_dans_json(self):                # site construit en JavaScript
         page = '<script>{"jobs":[{"url":"\\/fr\\/jobs-etudiants\\/exki-equipier-arts-loi\\/"}]}</script>'
         liens = sources._liens_annonces(page, "https://www.student.be/fr/bruxelles/jobs-etudiants/")

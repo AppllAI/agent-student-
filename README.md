@@ -11,13 +11,16 @@ Tu parles à l'agent comme à quelqu'un, **à l'écrit ou en vocal**. Les refus 
 1. Tu ouvres l'application, tu remplis : email, mot de passe d'application, clé API, jeton Telegram.
 2. Sur Telegram, l'agent te demande ton CV (PDF, même court) et ce que tu cherches :
    « vente ou événementiel, Bruxelles, pas d'horeca, dispo le samedi et le mercredi aprem, tout l'été ».
-3. Il cherche en continu (Student.be, StudentJob, Indeed, web, magasins à contacter spontanément),
+3. Il cherche en continu (Student.be et StudentJob en FR/NL pour chacune de tes villes, Indeed, Google Jobs —
+   qui regroupe les agences d'intérim —, sites des enseignes, magasins à contacter spontanément),
    écrit un email + une courte lettre, les fait vérifier, puis t'envoie des cartes : **[✅ Envoyer] [👁 Lettre] [❌ Non]**.
 4. Il envoie, relance après 5 jours, lit les réponses.
 5. Entretien proposé → **[✅ Samedi 10h] [📆 Autre date]** → il répond à l'employeur, t'envoie le rdv
    pour ton agenda, et la veille une fiche pour préparer l'entretien.
 
-On démarre en **mode répétition** 🧪 : tout est réel, mais les emails arrivent dans TA boîte.
+On démarre en **mode test** 🧪 : l'agent fait tout seul et envoie chaque candidature (CV + lettre en pièces
+jointes) à **l'adresse email écrite dans ton CV**, jamais aux employeurs. Rien sur Telegram. Quand tout te plaît :
+« mode validation », puis « vrai tout » pour envoyer pour de vrai celles que tu as reçues en test.
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## L'application

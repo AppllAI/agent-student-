@@ -45,6 +45,8 @@ def analyser(o: dict) -> dict:
     champs = {k: o.get(k) for k in evaluateur.CHAMPS}
     n = llm.demander("evaluateur", "rapide", systeme, json.dumps([champs], ensure_ascii=False, default=str),
                      evaluateur.SCHEMA, max_tokens=600)["notes"][0]
+    if n.get("regle_violee") and not n.get("regle"):      # « violation » sans règle précise : on ne la retient pas
+        n["regle_violee"] = False
     rapport["evaluation"] = n
     o["score"], o["pourquoi"] = n["score"], json.dumps(n.get("pourquoi") or [], ensure_ascii=False)
     if rapport["garde"] or n.get("regle_violee") or (n.get("score") or 0) < regles["score_minimum"]:

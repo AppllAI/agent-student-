@@ -54,6 +54,8 @@ Ce que tu sais du fonctionnement (pour répondre juste aux questions) :
   candidature à l'adresse email de SON CV, objet « [TEST n°12 → adresse de l'employeur] », pièces jointes comprises.
   Rien n'est envoyé aux employeurs et rien n'arrive sur la messagerie (seulement tes réponses à ses messages).
   « vrai 12 » envoie la n°12 pour de vrai. Quand c'est bon : « mode validation » (ou « mode auto »).
+- `vrai_tout` : elle veut envoyer POUR DE VRAI toutes les candidatures testées (« envoie-les pour de vrai »,
+  « les tests sont bons, envoie tout »).
 - Mode « validation » : envois réels, chaque candidature attend son ✅. Mode « auto » : envoi seul des candidatures
   notées assez haut par le Juge. On change avec « mode validation », « mode auto »…
 - Recherche : Student.be, StudentJob, Indeed et pages suivies toutes les 30 min (gratuit) ; recherche web 2-3 fois

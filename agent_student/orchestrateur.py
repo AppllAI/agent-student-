@@ -198,7 +198,7 @@ def demarrer(canal):
     threading.Thread(target=ouvrier, daemon=True).start()
     rythme = config.env_int
     for f, minutes, decalage in ((veille, rythme("INTERVALLE_VEILLE_MIN", 30), 5),
-                                 (recherche_web, rythme("INTERVALLE_WEB_MIN", 360), 60),
+                                 (recherche_web, rythme("INTERVALLE_WEB_MIN", 720), 60),
                                  (prospection, 60, 120),
                                  (_envoyer, 10, 30),
                                  (boite, rythme("INTERVALLE_BOITE_MIN", 5), 10),
