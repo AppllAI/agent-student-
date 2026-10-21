@@ -1,0 +1,14 @@
+{
+  "name": "agent-student-pont-whatsapp",
+  "private": true,
+  "main": "pont.cjs",
+  "bin": "pont.cjs",
+  "scripts": { "start": "node pont.cjs" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "express": "^4.21.2",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

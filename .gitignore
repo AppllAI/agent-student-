@@ -1,0 +1,14 @@
+# Secrets et données perso : ne JAMAIS publier
+.env
+donnees/
+profil/cv.pdf
+profil/profil.md
+config/objectif.yaml
+pont_whatsapp/.session/
+pont_whatsapp/node_modules/
+__pycache__/
+.venv/
+*.pyc
+build/
+dist/
+livraison/

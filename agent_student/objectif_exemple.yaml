@@ -1,0 +1,47 @@
+# Ton objectif. Le Coach le remplit avec toi sur Telegram, mais tu peux aussi l'éditer à la main.
+# Les règles « uniquement » / « exclus » sont STRICTES : une offre qui les viole n'est jamais postulée.
+
+domaine_actif: job_etudiant
+
+domaines:
+  job_etudiant:
+    description: ""
+    postes_vises: [vendeur, caissier, serveur, hôte d'accueil, préparateur de commandes, animateur, babysitter]
+    secteurs_uniquement: []          # ex. [vente, événementiel] → SEULEMENT ça
+    secteurs_exclus: []              # ex. [horeca, call center] → jamais
+    villes: [Bruxelles]
+    teletravail_ok: true
+    langues: [français]
+    contrats: [contrat étudiant]
+    # Quand tu peux travailler : c'est LE critère n°1 d'un job étudiant.
+    disponibilites: ""               # ex. « samedis toute la journée, mercredis après 13h, juillet complet »
+    periode: ""                      # ex. « toute l'année », « été 2027 », « vacances de Noël »
+    heures_max_par_semaine: 0        # 0 = pas de limite
+    salaire_min_horaire: 0           # € brut / heure, 0 = pas de minimum
+    permis_ou_vehicule: ""           # ex. « permis B », « vélo », « aucun »
+    exclure_entreprises: []
+    mots_cles_recherche:
+      - job étudiant Bruxelles
+      - job étudiant week-end Bruxelles
+      - job étudiant vente Bruxelles
+      - job étudiant horeca Bruxelles
+    # Pages de listes d'offres surveillées toutes les 30 min (sans IA, gratuit)
+    listes_a_surveiller:
+      - https://www.student.be/fr/bruxelles/jobs-etudiants/
+      - https://fr.studentjob.be/offres-d-emploi/bruxelles
+    pages_a_surveiller: []           # flux RSS ou pages carrières d'enseignes
+
+envoi:
+  # repetition = TEST : tout est réel (recherche, messages, PDF) mais les emails partent vers TA boîte,
+  #              jamais vers les employeurs. Tu vois exactement ce qui serait parti.
+  # validation = réel, tu valides chaque candidature d'un bouton sur Telegram.
+  # auto       = réel, envoi direct des candidatures que le Juge a notées assez haut.
+  mode: repetition
+  max_par_jour: 25
+  score_minimum: 7               # adéquation offre / toi, sur 10
+  note_lettre_minimum: 7         # qualité du message selon le Juge, sur 10
+  heures_envoi: [8, 19]          # commerces et restos lisent aussi en fin de journée (heure belge)
+  jours_envoi: [0, 1, 2, 3, 4, 5]  # lundi → samedi
+  relance_apres_jours: 5         # les jobs étudiants se pourvoient vite
+  delai_meme_cabinet_jours: 45   # jamais 2 candidatures au même employeur dans ce délai
+  candidatures_spontanees_par_jour: 3   # commerces/enseignes contactés sans offre publiée (0 pour désactiver)
