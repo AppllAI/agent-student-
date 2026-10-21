@@ -57,6 +57,8 @@ def _enrichir_une(o: dict):
     if not o.get("email_contact"):
         o["email_contact"] = (outils.emails_dans(texte) or [None])[0]
 
+    if o.get("source") == "liste" and jp and jp.get("titre"):
+        o["titre"] = jp["titre"]                 # le vrai titre de l'annonce, pas le texte du lien
     manque = [k for k in ("entreprise", "secteur", "description", "horaires") if not o.get(k)]
     if manque and (texte or o.get("description")):
         try:
@@ -66,7 +68,7 @@ def _enrichir_une(o: dict):
                                          "page": texte or o.get("description")}, ensure_ascii=False),
                              SCHEMA, max_tokens=900)
             for k in (*CLES, "mode_candidature"):
-                if not o.get(k) and r.get(k):
+                if r.get(k) and (not o.get(k) or (k == "titre" and o.get("source") == "liste" and not jp)):
                     o[k] = r[k]
         except llm.BudgetDepasse:
             return

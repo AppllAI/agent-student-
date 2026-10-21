@@ -92,7 +92,9 @@ def expedier(m: EmailMessage):
 
 def _formulaire(o):
     db.changer_statut(o["id"], "manuelle", "envoyeur", "candidature via le site de l'employeur")
-    messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site. Ta lettre est prête "
+    test = " (ici c'est toi qui cliques, même en mode répétition)" \
+        if config.regles_envoi()["mode"] == "repetition" else ""
+    messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site{test}. Ta lettre est prête "
                     f"(PDF ci-dessous) : ouvre le lien, colle-la, envoie.\n{o['url']}",
                     [[("✅ C'est fait", f"fait {o['id']}"), ("❌ Laisser tomber", f"ecarte {o['id']}")]])
     messagerie.fichier(chemin_lettre(o["id"]), f"Lettre – {o['entreprise'] or ''}")

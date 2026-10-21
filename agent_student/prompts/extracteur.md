@@ -2,6 +2,7 @@ Tu es l'Extracteur. On te donne le texte brut d'une page d'offre de JOB ÉTUDIAN
 Extrais les champs demandés tels qu'ils figurent dans la page. Rien d'autre.
 
 - Ne devine pas : champ absent → null.
+- `titre` : l'intitulé du poste seul, court (ex. « Vendeur·se étudiant·e – Anvers »), sans « Nouveau », « postuler »…
 - `secteur` : le secteur du job (ex. « horeca », « vente », « logistique », « événementiel », « animation »,
   « garde d'enfants », « cours particuliers », « call center », « livraison », « administratif », « promotion »),
   ou « divers » si rien ne domine.

@@ -60,8 +60,13 @@ def _liens_annonces(page: str, base: str) -> list[tuple[str, str]]:
         if url in vus or not any(re.search(m, url) for m in MOTIFS_ANNONCE):
             continue
         titre = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", unescape(texte))).strip()
-        if len(titre) < 4:                       # lien image / icône : on prend le titre depuis l'URL
-            titre = url.rstrip("/").rsplit("/", 1)[-1].split("-", 1)[-1].replace("-", " ").strip().capitalize()
+        # Le texte du lien est souvent toute la « carte » (« … Nouveau ! Soyez le premier à postuler lire la suite ») :
+        # on coupe ce bruit ; s'il reste trop long ou vide, le titre vient de l'adresse de l'annonce.
+        titre = re.split(r"\s(?:Nouveau\s*!|Soyez le premier|lire la suite|Postuler|Voir l.offre|Nieuw\s*!|Lees meer)",
+                         titre, maxsplit=1, flags=re.I)[0].strip()
+        if len(titre) < 4 or len(titre) > 90:
+            slug = url.rstrip("/").rsplit("/", 1)[-1]
+            titre = re.sub(r"^\d+-", "", slug).replace("-", " ").strip().capitalize()
         vus.add(url)
         sortie.append((url, titre[:160]))
     return sortie

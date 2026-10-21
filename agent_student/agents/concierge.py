@@ -164,17 +164,24 @@ def _contexte():
     questions = [{"email_id": r["id"], "de": r["expediteur"], "resume": json.loads(r["analyse"] or "{}").get("resume")}
                  for r in db.q("SELECT * FROM emails_recus WHERE categorie='question' AND traite=0")]
     manuelles = [dict(r) for r in db.q("SELECT id, entreprise, url FROM offres WHERE statut='manuelle'")]
-    return {"en_attente_de_validation": attente, "rdv_proposes": rdv, "questions_recruteurs": questions,
-            "a_postuler_via_site": manuelles, "en_pause": db.kv_get("pause", False),
-            "mode_envoi": config.regles_envoi()["mode"]}
+    s = {r["statut"]: r["n"] for r in db.q("SELECT statut, COUNT(*) AS n FROM offres GROUP BY statut")}
+    return {"ETAT_ACTUEL": {
+                "en_pause": bool(db.kv_get("pause", False)), "pause_jusqu": db.kv_get("pause_jusqu"),
+                "mode_envoi": config.regles_envoi()["mode"],
+                "offres_en_traitement": sum(s.get(k, 0) for k in ("decouverte", "enrichie", "qualifiee", "redigee")),
+                "ecartees_total": s.get("ecartee", 0), "repetees": s.get("repetee", 0),
+                "envoyees": sum(s.get(k, 0) for k in ("envoyee", "relancee", "refus", "entretien", "sans_reponse"))},
+            "en_attente_de_validation": attente, "rdv_proposes": rdv, "questions_recruteurs": questions,
+            "a_postuler_via_site": manuelles}
 
 
 def _ia(texte: str):
     try:
-        d = llm.demander("concierge", "rapide", llm.prompt("concierge"),
+        # Sonnet : c'est lui qui te comprend, la qualité compte plus que la petite différence de prix
+        d = llm.demander("concierge", "qualite", llm.prompt("concierge"),
                          json.dumps({"contexte": _contexte(), "aujourd_hui": __import__("datetime").date.today().isoformat(),
                                     "historique": db.historique(8), "message": texte},
-                                    ensure_ascii=False), SCHEMA, max_tokens=700)
+                                    ensure_ascii=False), SCHEMA, max_tokens=700, reflexion=False)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"⏸️ {e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
     a, ids = d["action"], d.get("ids") or []

@@ -25,6 +25,15 @@ def stats() -> str:
     top = db.q("SELECT agent, SUM(eur) AS e FROM couts WHERE date(le)=date('now') GROUP BY agent ORDER BY e DESC LIMIT 4")
     if top:
         lignes.append("Dont : " + " · ".join(f"{r['agent']} {r['e']:.2f} €" for r in top))
+    jour = db.q1("SELECT COUNT(*) AS n FROM offres WHERE date(cree_le)=date('now')")["n"]
+    raisons = {}
+    for r in db.q("SELECT raison FROM offres WHERE statut='ecartee' AND date(maj_le)=date('now')"):
+        t = (r["raison"] or "autre").strip()
+        cle = "note trop basse" if "/10" in t else t.split(":")[0].split("(")[0].strip()[:40]
+        raisons[cle] = raisons.get(cle, 0) + 1
+    top_r = sorted(raisons.items(), key=lambda x: -x[1])[:4]
+    lignes.append(f"Aujourd'hui : {jour} offre(s) trouvée(s)"
+                  + (" · écartées : " + ", ".join(f"{k} ×{n}" for k, n in top_r) if top_r else ""))
     erreurs = db.q1("SELECT COUNT(*) AS n FROM offres WHERE statut='erreur'")["n"]
     if erreurs:
         lignes.append(f"⚠️ Offres mises de côté après erreur : {erreurs}")
