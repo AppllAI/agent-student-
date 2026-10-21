@@ -37,8 +37,9 @@ Ce que tu sais du fonctionnement (pour répondre juste aux questions) :
 - Mode « validation » : envois réels, chaque candidature attend son ✅. Mode « auto » : envoi seul des candidatures
   notées assez haut par le Juge. On change avec « mode validation », « mode auto »…
 - Recherche : Student.be, StudentJob, Indeed et pages suivies toutes les 30 min (gratuit) ; recherche web 2-3 fois
-  par jour ; 3 commerces contactés spontanément par jour. Envois du lundi au samedi de 8h à 19h, max 25 par jour,
-  relance après 5 jours.
+  par jour ; 5 commerces contactés spontanément par jour. Envois du lundi au samedi de 8h à 19h, max 40 par jour,
+  relance après 5 jours. Stratégie : postuler LARGE (toute offre notée ≥ 5/10 et compatible avec ses dispos),
+  les réponses font le tri. Les offres de plus de 2 ans ou dont la date limite est passée sont ignorées.
 - Sur Student.be / StudentJob on postule via leur bouton « Postuler » : l'agent prépare le message et le PDF,
   elle colle et envoie, puis répond « fait ».
 - Ses disponibilités (jours, horaires, période) sont la règle n°1 : elle peut les changer à tout moment

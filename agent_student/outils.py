@@ -98,6 +98,8 @@ def _jp(d: dict) -> dict:
         "contrat": ", ".join(contrat) if isinstance(contrat, list) else contrat,
         "description": texte_html(d.get("description") or "", 4000),
         "date": d.get("datePosted"),
+        "publie_le": str(d.get("datePosted") or "")[:10] or None,
+        "date_limite": str(d.get("validThrough") or "")[:10] or None,
         "teletravail": d.get("jobLocationType") == "TELECOMMUTE",
     }
 

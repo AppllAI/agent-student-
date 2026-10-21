@@ -8,6 +8,7 @@ Cascade économe (idée reprise d'ApplyPilot) :
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from .. import config, db, llm, outils
 
@@ -15,13 +16,13 @@ SCHEMA = {
     "type": "object",
     "properties": {k: {"type": ["string", "null"]} for k in
                    ("titre", "entreprise", "ville", "secteur", "contrat", "langue", "description", "email_contact",
-                    "horaires")}
+                    "horaires", "publie_le", "date_limite")}
     | {"mode_candidature": {"type": "string", "enum": ["email", "formulaire", "inconnu"]},
        "salaire_horaire": {"type": ["number", "null"], "description": "€ brut par heure, seulement s'il est écrit"}},
     "required": ["secteur", "mode_candidature"],
 }
 CLES = ("titre", "entreprise", "ville", "secteur", "contrat", "langue", "description", "email_contact",
-        "horaires", "salaire_horaire")
+        "horaires", "salaire_horaire", "publie_le", "date_limite")
 
 
 def enrichir(limite: int = 40):
@@ -60,7 +61,8 @@ def _enrichir_une(o: dict):
     if manque and (texte or o.get("description")):
         try:
             r = llm.demander("extracteur", "rapide", llm.prompt("extracteur"),
-                             json.dumps({"url": o["url"], "deja_connu": {k: o.get(k) for k in CLES},
+                             json.dumps({"url": o["url"], "date_du_jour": date.today().isoformat(),
+                                         "deja_connu": {k: o.get(k) for k in CLES},
                                          "page": texte or o.get("description")}, ensure_ascii=False),
                              SCHEMA, max_tokens=900)
             for k in (*CLES, "mode_candidature"):

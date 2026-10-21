@@ -62,6 +62,13 @@ _EXIGE = re.compile(r"exig|obligatoire|indispensable|requis|imperati|courant|cou
                     r"fluent|required|vereist|vlot|must")
 
 
+def _date(v):
+    try:
+        return datetime.fromisoformat(str(v)[:10]).date() if v else None
+    except ValueError:
+        return None
+
+
 def verdict(o: dict, dom: dict, regles: dict) -> str | None:
     """Renvoie la raison de rejet, ou None si l'offre passe."""
     secteur = sans_accents(o.get("secteur") or "")
@@ -77,6 +84,16 @@ def verdict(o: dict, dom: dict, regles: dict) -> str | None:
     if seules and secteur and secteur not in ("generaliste", "divers"):
         if not any(_contient(tout, t) for m in seules for t in _termes(m)):
             return f"hors secteurs voulus ({', '.join(seules)})"
+
+    # Trop ancienne : publiée il y a plus de 2 ans (ex. 2023 alors qu'on est en 2026). Un peu vieille (2024) :
+    # on tente quand même, ils n'ont peut-être trouvé personne. Date limite dépassée : inutile.
+    aujourdhui = datetime.now().date()
+    publie = _date(o.get("publie_le"))
+    if publie and publie.year < aujourdhui.year - 2:
+        return f"offre trop ancienne (publiée en {publie.year})"
+    limite_cand = _date(o.get("date_limite"))
+    if limite_cand and limite_cand < aujourdhui:
+        return f"date limite dépassée ({limite_cand:%d/%m/%Y})"
 
     if _ARNAQUE.search(tout):
         return "ressemble à une arnaque ou à des sondages rémunérés"

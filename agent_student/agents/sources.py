@@ -195,11 +195,11 @@ def enregistrer(offres: list[dict]) -> int:
             cle = outils.cle_offre(o["url"], o.get("entreprise"), o.get("titre"))
             cur = c.execute(
                 """INSERT OR IGNORE INTO offres (cle, url, source, titre, entreprise, ville, secteur, contrat, langue,
-                   horaires, salaire_horaire, description, email_contact, mode_candidature, publie_le)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   horaires, salaire_horaire, description, email_contact, mode_candidature, publie_le, date_limite)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (cle, o["url"], o.get("source"), o["titre"], o.get("entreprise"), o.get("ville"), o.get("secteur"),
                  o.get("contrat"), o.get("langue"), o.get("horaires"), o.get("salaire_horaire"), o.get("description"), o.get("email_contact"),
-                 o.get("mode_candidature"), o.get("publie_le")))
+                 o.get("mode_candidature"), o.get("publie_le"), o.get("date_limite")))
             nouvelles += cur.rowcount
     if nouvelles:
         db.journal("eclaireur", f"{nouvelles} nouvelle(s) offre(s)")

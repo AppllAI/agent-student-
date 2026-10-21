@@ -109,7 +109,7 @@ def ecrire_une(o) -> dict:
     meilleure = None
     for _ in range(2):          # 1 réécriture max : au-delà, la qualité ne monte plus et le coût double
         r = llm.demander("redacteur", "qualite", systeme_r, json.dumps(demande, ensure_ascii=False),
-                         SCHEMA_LETTRE, max_tokens=8000)
+                         SCHEMA_LETTRE, max_tokens=4000, reflexion=False)
         if len((r.get("lettre") or "").split()) < 90 or not r.get("email") or not r.get("objet"):
             raise ValueError("lettre vide ou incomplète renvoyée par l'IA")
         # Juge = Sonnet sans réflexion : testé contre la vraie API, il attrape TOUTES les inventions glissées
@@ -140,7 +140,7 @@ def ecrire_une(o) -> dict:
     return meilleure
 
 
-def rediger(limite: int = 8):
+def rediger(limite: int = 12):
     if not config.profil_texte().strip():
         db.journal("redacteur", "profil vide : en attente du CV")
         return
@@ -206,10 +206,20 @@ def proposer_lot():
     lot = db.q("SELECT * FROM offres WHERE statut='a_valider' AND notifie=0 ORDER BY score DESC, note_lettre DESC")
     if not lot:
         return
-    messagerie.dire(f"🔎 {len(lot)} candidature(s) prête(s) :")
-    for o in lot:
-        messagerie.dire(*carte(o))
-    if len(lot) > 1:
-        messagerie.dire("Ou d'un coup :", [[("✅ Tout envoyer", "ok tout")]])
+    if len(lot) <= 5:
+        messagerie.dire(f"🔎 {len(lot)} candidature(s) prête(s) :")
+        for o in lot:
+            messagerie.dire(*carte(o))
+        if len(lot) > 1:
+            messagerie.dire("Ou d'un coup :", [[("✅ Tout envoyer", "ok tout")]])
+    else:                       # beaucoup d'un coup : une liste compacte au lieu de 40 messages
+        for i in range(0, len(lot), 25):
+            part = lot[i:i + 25]
+            lignes = [f"*{o['id']}.* {o['titre'][:45]} — {(o['entreprise'] or '?')[:30]} · {o['score']}/10"
+                      + ("" if o["email_contact"] else " 🌐") for o in part]
+            messagerie.dire(f"🔎 {len(lot)} candidatures prêtes" + (" (suite)" if i else "") + " :\n"
+                            + "\n".join(lignes))
+        messagerie.dire("« montre 12 » pour en lire une · « ok sauf 3 7 » pour retirer · 🌐 = via leur site",
+                        [[("✅ Tout envoyer", "ok tout")]])
     with db.tx() as c:
         c.executemany("UPDATE offres SET notifie=1 WHERE id=?", [(o["id"],) for o in lot])

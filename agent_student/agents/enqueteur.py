@@ -1,6 +1,7 @@
 """Agent Enquêteur : 2-3 faits vérifiés sur l'employeur + email de recrutement manquant.
 Il travaille pour les meilleures offres (score ≥ 8, la personnalisation paie) et pour toute offre
-retenue sans email (trouver l'adresse = pouvoir postuler par email au lieu d'un formulaire)."""
+retenue sans email : sur Student.be / StudentJob, trouver l'email de l'employeur = postuler directement par email
+au lieu de te faire coller la lettre à la main."""
 from __future__ import annotations
 
 import json

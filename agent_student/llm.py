@@ -73,7 +73,7 @@ def demander(agent: str, tier: str, systeme: str, contenu: str, schema: dict,
 
         return simulation.repondre(agent, contenu, schema)
 
-    budget = float(config.env("BUDGET_JOUR_EUR", "2"))
+    budget = float(config.env("BUDGET_JOUR_EUR", "3"))
     plafond = budget * (PART_FOND if priorite == "fond" else 1)
     if depense_du_jour() >= plafond:
         raise BudgetDepasse(f"Budget du jour atteint ({plafond:.2f} € pour les tâches {priorite})")

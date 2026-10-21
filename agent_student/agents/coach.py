@@ -66,7 +66,7 @@ def bienvenue():
 
 def parler(texte: str):
     o = config.objectif()
-    actif = o.get("domaine_actif", "droit_belge")
+    actif = o.get("domaine_actif", "job_etudiant")
     dom = o.setdefault("domaines", {}).setdefault(actif, {})
     contexte = {"objectif_actuel": dom, "cv_recu": config.chemin_cv().exists() and bool(config.profil_texte().strip()),
                 "profil": config.profil_texte()[:1500], "historique": db.historique(10), "message": texte}

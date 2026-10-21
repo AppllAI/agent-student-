@@ -256,6 +256,11 @@ class Garde(unittest.TestCase):
         self.assertIsNone(v(titre="Hôtesse d'embarquement"))                  # « bar » ≠ « embarquement »
         self.assertIsNotNone(v(titre="Vendeur", langue="néerlandais courant"))
         self.assertIsNone(v(titre="Vendeur", langue="français"))
+        from datetime import date
+        an = date.today().year
+        self.assertIn("trop ancienne", v(titre="Vendeur", publie_le=f"{an - 3}-05-02") or "")
+        self.assertIsNone(v(titre="Vendeur", publie_le=f"{an - 2}-05-02"))       # un peu vieille : on tente
+        self.assertIn("date limite", v(titre="Vendeur", date_limite=f"{an - 1}-01-01") or "")
         dom["secteurs_uniquement"] = ["garde d'enfants"]
         self.assertIsNotNone(v(titre="Caissier", secteur="vente"))
         self.assertIsNone(v(titre="Babysitter 3 soirs", secteur="baby-sitting"))
