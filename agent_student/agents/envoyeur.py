@@ -97,11 +97,28 @@ def expedier(m: EmailMessage):
         s.send_message(m)
 
 
+def envoyer_copies(ids: list[int], adresse: str) -> int:
+    """« Envoie-les sur mon autre mail » : copie complète (email + CV + lettre) de candidatures déjà écrites,
+    vers l'adresse demandée. Jamais vers un employeur."""
+    n = 0
+    for i in ids:
+        o = db.q1("SELECT * FROM offres WHERE id=?", i)
+        if not o or not o["lettre"]:
+            continue
+        o = dict(o)
+        o["_soucis"] = None
+        m = construire(o, repetition=True)
+        m.replace_header("To", adresse)
+        expedier(m)
+        n += 1
+    return n
+
+
 def _formulaire(o, seul: bool = True):
     db.changer_statut(o["id"], "manuelle", "envoyeur", "candidature via le site de l'employeur")
     if not seul:
         return
-    messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site. Ta lettre est prête "
+    messagerie.dire(f"*{o['entreprise'] or o['titre']}* se postule sur leur site. Ta lettre est prête "
                     f"(PDF ci-dessous) : ouvre le lien, colle-la, envoie.\n{o['url']}",
                     [[("✅ C'est fait", f"fait {o['id']}"), ("❌ Laisser tomber", f"ecarte {o['id']}")]])
     messagerie.fichier(chemin_lettre(o["id"]), f"Lettre – {o['entreprise'] or ''}")
@@ -126,7 +143,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
                 continue
             if soucis:
                 db.changer_statut(o["id"], "a_valider", "controleur", "à relire : contrôle — " + " ; ".join(soucis))
-                messagerie.dire(f"🛑 J'ai bloqué l'envoi à *{o['entreprise']}* : " + " ; ".join(soucis),
+                messagerie.dire(f"J'ai bloqué l'envoi à *{o['entreprise']}* : " + " ; ".join(soucis),
                                 [[("👁 Voir", f"montre {o['id']}"), ("❌ Écarter", f"ecarte {o['id']}")]])
                 continue
             if not config.simulation() and (not heure_ouvrable(regles) or envoyees >= max_par_cycle
@@ -144,7 +161,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
             if time.time() - float(db.kv_get("alerte_smtp", 0) or 0) > 12 * 3600:
                 db.kv_set("alerte_smtp", time.time())
                 auth = isinstance(e, smtplib.SMTPAuthenticationError)
-                messagerie.dire("📮 Je n'arrive pas à me connecter à ta boîte mail"
+                messagerie.dire("Je n'arrive pas à me connecter à ta boîte mail"
                                 + (" : le mot de passe d'application est refusé. Recrée-en un (Google → Sécurité → "
                                    "Mots de passe des applications) et colle-le dans ⚙ Réglages." if auth else
                                    " (internet coupé ou Gmail qui freine). Je réessaie toutes les 10 min.")
@@ -168,7 +185,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
         if not repetition and not config.simulation():
             time.sleep(random.randint(*pause_secondes))  # rythme humain, évite les filtres anti-spam
     if len(via_site) > 3:
-        messagerie.dire(f"🌐 Et {len(via_site) - 3} autres se postulent sur leur site (lettre prête pour chacune) :\n"
+        messagerie.dire(f"Et {len(via_site) - 3} autres se postulent sur leur site (lettre prête pour chacune) :\n"
                         + "\n".join(f"*{o['id']}.* {o['entreprise'] or o['titre']} — {o['url']}" for o in via_site[3:20])
                         + "\n« montre 12 » pour la lettre · « fait 12 » quand c'est envoyé.")
     return envoyees

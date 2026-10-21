@@ -112,3 +112,28 @@ def repondre(agent: str, contenu: str, schema: dict) -> dict:
         return {"fiche_markdown": "# Profil\n- Nom : Alex Test\n- Bachelier en sciences économiques (simulation)\n",
                 "nom": "Alex Test", "telephone": "0470 00 00 00", "manquants": ["permis de conduire"]}
     raise KeyError(f"Pas de réponse simulée pour {agent}")
+
+
+def manager(texte: str) -> tuple[list, str]:
+    """Le Manager en simulation : quelques intentions reconnues par mots-clés → mêmes OUTILS que la vraie IA."""
+    import re as _re
+    from . import db as _db
+    m = texte.lower()
+    rdv = _db.q("SELECT id FROM rdv WHERE statut='propose'")
+    if rdv and _re.search(r"\b(oui|ok|parfait|confirme)", m):
+        return [("rendez_vous", {"rdv_id": rdv[0]["id"], "decision": "confirmer"})], "Je confirme le rendez-vous."
+    if "blocus" in m:
+        return [("pause", {"jusqu_au": "2099-06-20"})], ""
+    if "essayer" in m or "voir si ça marche" in m:
+        return [("teste_toi", {})], "Je me teste, rapport dans 3 minutes."
+    if "longue" in m or "formel" in m:
+        return [("regle_de_style", {"consigne": "Lettres plus courtes (180 mots max)."})], "Noté."
+    if adresse := _re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", texte):
+        return [("envoyer_par_email", {"adresse": adresse.group(0)})], ""
+    if "ici" in m and "envoie" in m:
+        return [("envoyer_dans_le_chat", {"ids": []})], ""
+    if "maintenant" in m or "tout de suite" in m:
+        return [("chercher_maintenant", {})], "C'est lancé."
+    if "score" in m or "note minimum" in m:
+        return [("regler", {"cle": "score_minimum", "valeur": int(_re.findall(r"\d+", m)[0])})], ""
+    return [], "Bien noté."

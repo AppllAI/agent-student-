@@ -111,7 +111,7 @@ def confirmer(rdv_id: int, creneau: str | None = None):
     with db.tx() as c:
         c.execute("UPDATE rdv SET statut='decline' WHERE email_id=? AND id<>?", (rdv["email_id"], rdv["id"]))
         c.execute("UPDATE rdv SET statut='confirme' WHERE id=?", (rdv["id"],))
-    messagerie.dire(f"✅ Confirmé à *{rdv['entreprise']}* : {joli(rdv['debut'])}. Bonne chance 💪")
+    messagerie.dire(f"✅ Confirmé à *{rdv['entreprise']}* : {joli(rdv['debut'])}. Bonne chance !")
     if rdv["debut"]:
         messagerie.fichier(ics(db.q1("SELECT * FROM rdv WHERE id=?", rdv["id"])), "Ajoute-le à ton agenda")
 
@@ -121,7 +121,7 @@ def autre_date(rdv_id: int, disponibilites: str):
     _repondre(rdv["email_id"], {"type": "autre_date", "disponibilites_proposees": disponibilites})
     with db.tx() as c:
         c.execute("UPDATE rdv SET statut='decline' WHERE email_id=?", (rdv["email_id"],))
-    messagerie.dire(f"📨 J'ai proposé tes disponibilités à *{rdv['entreprise']}*. Je te préviens dès qu'ils répondent.")
+    messagerie.dire(f"J'ai proposé tes disponibilités à *{rdv['entreprise']}*. Je te préviens dès qu'ils répondent.")
 
 
 def decliner(rdv_id: int):
@@ -129,9 +129,9 @@ def decliner(rdv_id: int):
     _repondre(rdv["email_id"], {"type": "declin_poli"})
     with db.tx() as c:
         c.execute("UPDATE rdv SET statut='decline' WHERE email_id=?", (rdv["email_id"],))
-    messagerie.dire(f"👌 J'ai décliné poliment auprès de *{rdv['entreprise']}*.")
+    messagerie.dire(f"J'ai décliné poliment auprès de *{rdv['entreprise']}*.")
 
 
 def repondre_question(email_id: int, texte: str):
     _repondre(email_id, {"type": "reponse_question", "ce_que_je_veux_dire": texte})
-    messagerie.dire("📨 Réponse envoyée.")
+    messagerie.dire("Réponse envoyée.")

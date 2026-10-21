@@ -40,7 +40,7 @@ def en_pause() -> bool:
     if fin and datetime.now().date().isoformat() >= fin:      # fin du blocus / des vacances : on reprend seul
         db.kv_set("pause", False)
         db.kv_set("pause_jusqu", None)
-        messagerie.dire("▶️ Fin de ta pause : je reprends la recherche et les candidatures. Bonne reprise !")
+        messagerie.dire("Fin de ta pause : je reprends la recherche et les candidatures. Bonne reprise !")
         declencher()
         return False
     return True
@@ -212,7 +212,7 @@ def demarrer(canal):
                             f"{' · SIMULATION' if config.simulation() else ''}")
     if en_pause():
         db.journal("orchestre", "⏸️ EN PAUSE : aucune recherche ni envoi tant que tu n'écris pas « reprendre »")
-        messagerie.dire("⏸️ Je suis en pause : je ne cherche et n'envoie rien. Écris « reprendre » pour que je m'y remette.",
+        messagerie.dire("Je suis en pause : je ne cherche et n'envoie rien. Écris « reprendre » pour que je m'y remette.",
                         [[("▶️ Reprendre", "reprendre")]])
     canal.ecouter(file.put)   # bloquant
     file.join()               # fin de session : on finit de traiter les messages reçus

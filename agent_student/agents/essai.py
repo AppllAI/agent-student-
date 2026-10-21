@@ -87,7 +87,7 @@ def texte_rapport(r: dict) -> str:
 
 
 def essayer(url: str):
-    messagerie.dire("⏳ J'analyse cette offre (lecture, règles, note, enquête, lettre, Juge)… ~1 minute.")
+    messagerie.dire("J'analyse cette offre (lecture, règles, note, enquête, lettre, Juge)… ~1 minute.")
     try:
         r = analyser(_lire_offre(url))
     except Exception as e:

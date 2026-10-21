@@ -75,7 +75,7 @@ class Circuit(unittest.TestCase):
         self.assertIn("samedi", config.profil_texte())                # dispos vérifiables par le Juge
         concierge.recevoir(Entrant(texte="ok lance"))
         self.assertTrue(db.kv_get("onboarding_fini"))
-        self.assertIn("🧪", self.dernier())                    # mode répétition par défaut, rappelé partout
+        self.assertEqual(config.regles_envoi()["mode"], "repetition")     # mode test par défaut
 
     def test_2_recherche_et_tri(self):
         avant = len(self.canal.messages)
@@ -180,10 +180,33 @@ class Circuit(unittest.TestCase):
 
     def test_7_test_en_langage_naturel(self):
         concierge.recevoir(Entrant(texte="j'aimerais d'abord essayer pour voir si ça marche"))
-        self.assertIn("Test terminé", self.canal.messages[-1])
+        self.assertTrue(any("Test terminé" in m for m in self.canal.messages[-3:]))
         self.assertTrue(any(f.name == "banc_essai.md" for f in self.canal.fichiers))
         concierge.recevoir(Entrant(texte="aide"))
         self.assertIn("teste-toi", self.dernier())
+
+    def test_7b_manager(self):
+        """Le Manager AGIT : chercher maintenant, envoyer à une adresse, régler, envoyer ici."""
+        appels = []
+        orchestrateur.declencher = lambda: appels.append("recherche")
+        concierge.recevoir(Entrant(texte="lance une recherche maintenant stp"))
+        self.assertEqual(appels, ["recherche"])
+        self.assertIn("lancé", self.dernier())
+        avant = len(emails_sortis())
+        db.q("SELECT 1")
+        with db.tx() as c:                                       # une candidature testée récente
+            c.execute("UPDATE offres SET statut='repetee', envoye_le=datetime('now') WHERE entreprise='Librairie Horizon'")
+        concierge.recevoir(Entrant(texte="envoie-les sur mon autre mail alex.perso@exemple.com"))
+        nouveaux = emails_sortis()[avant:]
+        self.assertGreaterEqual(len(nouveaux), 1)
+        self.assertIn(b"To: alex.perso@exemple.com", nouveaux[0].read_bytes())
+        self.assertIn("alex.perso@exemple.com", self.dernier())
+        concierge.recevoir(Entrant(texte="mets le score minimum à 4"))
+        self.assertEqual(config.regles_envoi()["score_minimum"], 4)
+        n = len(self.canal.fichiers)
+        concierge.recevoir(Entrant(texte="envoie ici la lettre"))
+        self.assertGreater(len(self.canal.fichiers), n)              # la lettre arrive dans la conversation
+        orchestrateur.declencher = lambda: None
 
     def test_8_banc_essai(self):
         rapport = essai.banc_essai()

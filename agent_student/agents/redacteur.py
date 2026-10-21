@@ -208,7 +208,7 @@ def proposer_lot():
     if not lot:
         return
     if len(lot) <= 5:
-        messagerie.dire(f"🔎 {len(lot)} candidature(s) prête(s) :")
+        messagerie.dire(f"{len(lot)} candidature(s) prête(s) :")
         for o in lot:
             messagerie.dire(*carte(o))
         if len(lot) > 1:
@@ -218,7 +218,7 @@ def proposer_lot():
             part = lot[i:i + 25]
             lignes = [f"*{o['id']}.* {o['titre'][:45]} — {(o['entreprise'] or '?')[:30]} · {o['score']}/10"
                       + ("" if o["email_contact"] else " 🌐") for o in part]
-            messagerie.dire(f"🔎 {len(lot)} candidatures prêtes" + (" (suite)" if i else "") + " :\n"
+            messagerie.dire(f"{len(lot)} candidatures prêtes" + (" (suite)" if i else "") + " :\n"
                             + "\n".join(lignes))
         messagerie.dire("« montre 12 » pour en lire une · « ok sauf 3 7 » pour retirer · 🌐 = via leur site",
                         [[("✅ Tout envoyer", "ok tout")]])

@@ -56,7 +56,7 @@ MENU = ("📋 *Ce que tu peux me dire* (ou en vocal 🎙️, avec tes mots) :\n"
 
 
 def bienvenue():
-    messagerie.dire("🎓 *Agent Student*\nJe cherche des jobs étudiants en continu, j'écris un message sur mesure pour "
+    messagerie.dire("*Agent Student*\nJe cherche des jobs étudiants en continu, j'écris un message sur mesure pour "
                     "chacun et je postule. Je ne te dérange que pour décider.\n\n"
                     "*Pour démarrer :*\n1️⃣ Envoie ton CV en PDF ici (même court, c'est normal)\n"
                     "2️⃣ Dis-moi ce que tu cherches : type de job, ville, et surtout *quand tu es dispo* "
@@ -76,7 +76,7 @@ def parler(texte: str):
         r = llm.demander("coach", "rapide", llm.prompt("coach"), json.dumps(contexte, ensure_ascii=False),
                          SCHEMA_COACH, max_tokens=900)
     except llm.BudgetDepasse as e:
-        return messagerie.dire(f"⏸️ {e}. On reprend demain !")
+        return messagerie.dire(f"{e}. On reprend demain !")
     accords = r.get("accords")
     if accords in ("masculin", "féminin") and "Accords" not in config.profil_texte():
         f = config.PROFIL_DIR / "profil.md"
@@ -108,14 +108,14 @@ def recevoir_cv(chemin: Path):
     if len(texte.strip()) < 300:            # PDF scanné / image : Claude lit le PDF lui-même
         pdf = config.chemin_cv().read_bytes()
         if len(pdf) > 20_000_000:
-            return messagerie.dire("📄 Ton CV fait plus de 20 Mo, c'est trop lourd. Exporte-le à nouveau en PDF "
+            return messagerie.dire("Ton CV fait plus de 20 Mo, c'est trop lourd. Exporte-le à nouveau en PDF "
                                    "depuis Word ou Google Docs et renvoie-le.")
         texte = "Le CV est le document PDF joint."
     try:
         r = llm.demander("profileur", "qualite", llm.prompt("profileur"), texte[:12000], SCHEMA_PROFIL,
                          max_tokens=3000, pdf=pdf)
     except llm.BudgetDepasse as e:
-        return messagerie.dire(f"⏸️ {e}.")
+        return messagerie.dire(f"{e}.")
     except Exception as e:
         db.journal("profileur", f"lecture du CV en échec : {e}")
         return messagerie.dire("⚠️ Je n'ai pas réussi à analyser ton CV (erreur technique). Je réessaie tout seul "
@@ -150,7 +150,7 @@ def completer_profil(texte: str):
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f, "a", encoding="utf-8") as fh:
         fh.write("\n" + "\n".join(r["lignes"]) + "\n")
-    messagerie.dire("📝 Ajouté à ton profil.")
+    messagerie.dire("Ajouté à ton profil.")
 
 
 def appliquer_identite():

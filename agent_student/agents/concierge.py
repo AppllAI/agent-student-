@@ -48,13 +48,23 @@ class Entrant:
 
 def _fond(f, *a):
     from .. import orchestrateur
-    orchestrateur.en_fond(f, *a)
+
+    def tache(*x):
+        # un travail de fond parle directement à la personne, jamais capturé par le Manager
+        ancien = getattr(messagerie._local, "capture", None)
+        messagerie._local.capture = None
+        try:
+            f(*x)
+        finally:
+            messagerie._local.capture = ancien
+    tache.__name__ = getattr(f, "__name__", "tache")
+    orchestrateur.en_fond(tache, *a)
 
 
 def recevoir(m: Entrant):
     if m.fichier:
         if (m.nom_fichier or str(m.fichier)).lower().endswith(".pdf"):
-            messagerie.dire("📄 Je lis ton CV…")
+            messagerie.dire("Je lis ton CV…")
 
             def lire():
                 coach.recevoir_cv(Path(m.fichier))
@@ -71,9 +81,9 @@ def recevoir(m: Entrant):
             db.journal("transcripteur", f"échec : {e}")
             texte = ""
         if not texte:
-            return messagerie.dire("🎙️ Je n'arrive pas encore à écouter les vocaux (voir réglages : transcription). "
+            return messagerie.dire("Je n'arrive pas encore à écouter les vocaux (voir réglages : transcription). "
                                    "Tu peux me l'écrire ?")
-        messagerie.dire(f"🎙️ « {texte[:300]} »")
+        messagerie.dire(f"« {texte[:300]} »")
     if not texte:
         return
     db.dire("moi", texte)
@@ -88,7 +98,12 @@ def recevoir(m: Entrant):
         messagerie.occupe()
         return coach.parler(texte)
     messagerie.occupe()
-    _ia(texte)
+    from . import manager
+    try:
+        manager.repondre(texte)
+    except Exception as e:                     # filet : l'ancien routeur simple prend le relais
+        db.journal("manager", f"échec, routeur simple : {type(e).__name__}: {e}")
+        _ia(texte)
 
 
 # ---------- Commandes et boutons : sans IA, instantané ----------
@@ -113,11 +128,11 @@ def _raccourci(t: str) -> bool:
         db.kv_set("pause", False)
         db.kv_set("pause_jusqu", None)
         from .. import orchestrateur
-        messagerie.dire("▶️ C'est reparti : je lance une recherche tout de suite et je t'envoie ce que je prépare.")
+        messagerie.dire("C'est reparti, je lance une recherche maintenant.")
         orchestrateur.declencher()
     elif b in ("cherche", "recherche", "cherche maintenant", "scan"):
         from .. import orchestrateur
-        messagerie.dire("🔎 Je lance une recherche complète maintenant. Je te montre ce que je trouve.")
+        messagerie.dire("Je lance une recherche complète maintenant. Je te montre ce que je trouve.")
         orchestrateur.declencher()
     elif m := re.fullmatch(r"mode\s+(repetition|validation|auto)", b):
         _changer_mode(m.group(1))
@@ -137,7 +152,7 @@ def _raccourci(t: str) -> bool:
         _vrai(_ids(b)[0])
     elif re.fullmatch(r"(ecarte|non|retire)\s+[\d ,et]+", b):
         ecarter(_ids(b))
-        messagerie.dire("👌 Écartée(s).")
+        messagerie.dire("Écartée(s).")
     elif m := re.fullmatch(r"rdv\s+(\d+)\s+(oui|non|autre)", b):
         rid, choix = int(m.group(1)), m.group(2)
         if choix == "oui":
@@ -146,7 +161,7 @@ def _raccourci(t: str) -> bool:
             _fond(secretaire.decliner, rid)
         else:
             db.kv_set("attente_dispo", rid)
-            messagerie.dire("📆 Quelles sont tes disponibilités ? (ex. « mardi ou jeudi après 14h »)")
+            messagerie.dire("Quelles sont tes disponibilités ? (ex. « mardi ou jeudi après 14h »)")
     elif re.fullmatch(r"(ok|valide|envoie|go)\s+[\d ,et]+", b) and not b.startswith(("ok sauf", "ok tout")):
         valider(_ids(b))
     elif attente and not rdv_ouverts and re.fullmatch(r"(ok|oui|valide|envoie)( tout| tous| toutes)?", b):
@@ -186,7 +201,7 @@ def _ia(texte: str):
                                     "historique": db.historique(8), "message": texte},
                                     ensure_ascii=False), SCHEMA, max_tokens=700, reflexion=False)
     except llm.BudgetDepasse as e:
-        return messagerie.dire(f"⏸️ {e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
+        return messagerie.dire(f"{e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
     a, ids = d["action"], d.get("ids") or []
     try:
         if a == "valider":
@@ -245,10 +260,10 @@ def pause(jusqu_au: str | None = None, mot: str | None = None):
     db.kv_set("pause_jusqu", fin.isoformat() if fin else None)
     debut = (mot.strip() + "\n") if mot else ""
     if fin:
-        messagerie.dire(f"{debut}⏸️ En pause jusqu'au {fin:%d/%m} : je ne cherche et n'envoie rien. "
+        messagerie.dire(f"{debut}En pause jusqu'au {fin:%d/%m} : je ne cherche et n'envoie rien. "
                         "Je reprends tout seul ce jour-là (ou « reprendre » avant).")
     else:
-        messagerie.dire(f"{debut}⏸️ En pause : plus aucune recherche ni envoi. « reprendre » quand tu veux.",
+        messagerie.dire(f"{debut}En pause : plus aucune recherche ni envoi. « reprendre » quand tu veux.",
                         [[("▶️ Reprendre", "reprendre")]])
 
 
@@ -301,7 +316,7 @@ def noter_style(remarque: str):
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f, "a", encoding="utf-8") as fh:
         fh.write(f"- {remarque.strip()}\n")
-    messagerie.dire("✍️ Noté : toutes les prochaines lettres en tiendront compte.")
+    messagerie.dire("Noté : toutes les prochaines lettres en tiendront compte.")
 
 
 def _changer_mode(mode: str):
@@ -324,7 +339,7 @@ def _vrai_tout():
     db.kv_set("envoi_reel_ids", sorted(set(db.kv_get("envoi_reel_ids", [])) | set(ids)))
     for i in ids:
         db.changer_statut(i, "validee", "concierge", "envoi réel demandé")
-    messagerie.dire(f"🚀 OK : {len(ids)} candidature(s) partent pour de vrai, une par une, aux heures ouvrables.")
+    messagerie.dire(f"OK : {len(ids)} candidature(s) partent pour de vrai, une par une, aux heures ouvrables.")
     from .. import orchestrateur
     orchestrateur.envoyer_bientot()
 
@@ -335,7 +350,7 @@ def _vrai(i):
         return messagerie.dire("Cette candidature n'est pas en répétition.")
     db.kv_set("envoi_reel_ids", sorted(set(db.kv_get("envoi_reel_ids", [])) | {i}))
     db.changer_statut(i, "validee", "concierge", "envoi réel demandé")
-    messagerie.dire("🚀 OK, celle-ci part pour de vrai chez l'employeur (aux heures de bureau).")
+    messagerie.dire("OK, celle-ci part pour de vrai chez l'employeur (aux heures de bureau).")
     from .. import orchestrateur
     orchestrateur.envoyer_bientot()
 
@@ -349,13 +364,13 @@ def _banc():
     """« teste-toi » / « je veux d'abord voir si ça marche » : 5 lettres d'exemple notées, rien n'est envoyé."""
     from .essai import banc_essai
     if not config.profil_texte().strip():
-        return messagerie.dire("📄 Envoie-moi d'abord ton CV en PDF : sans lui, je ne peux pas écrire de vraies lettres.")
-    messagerie.dire("🧪 Je me teste sur 5 offres d'exemple (lettres + notes du Juge). Rien n'est envoyé. ~3 min, "
+        return messagerie.dire("Envoie-moi d'abord ton CV en PDF : sans lui, je ne peux pas écrire de vraies lettres.")
+    messagerie.dire("Je me teste sur 5 offres d'exemple (lettres + notes du Juge). Rien n'est envoyé. ~3 min, "
                     "je te préviens quand c'est prêt.")
     f = banc_essai()
     texte = f.read_text(encoding="utf-8")
     note = re.search(r"Note moyenne du Juge : ([\d.]+)/10\** · coût : ([\d.]+) €", texte)
-    messagerie.dire(f"✅ Test terminé : note moyenne {note.group(1)}/10, coût {note.group(2)} €. "
+    messagerie.dire(f"Test terminé : note moyenne {note.group(1)}/10, coût {note.group(2)} €. "
                     "Le rapport complet (les 5 lettres) est ci-dessous. Dis-moi ce qui te plaît ou pas, j'apprends.\n"
                     "Ensuite : envoie-moi « essai » + le lien d'une vraie offre.")
     messagerie.fichier(f, "Rapport du test")
@@ -368,4 +383,4 @@ def _fait(ids):
         if o and o["statut"] == "manuelle":
             db.changer_statut(i, "envoyee", "concierge", "postulé via le site",
                               envoye_le=datetime.now().isoformat(" ", "seconds"))
-    messagerie.dire("👍 Noté, je suis la réponse.")
+    messagerie.dire("Noté, je suis la réponse.")

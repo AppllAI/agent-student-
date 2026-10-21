@@ -46,4 +46,4 @@ def bilan_du_jour():
     db.kv_set("dernier_bilan", date.today().isoformat())
     n = db.q1("SELECT COUNT(*) AS n FROM offres WHERE date(envoye_le)=?", date.today().isoformat())["n"]
     if n:
-        messagerie.signaler(f"🌙 Aujourd'hui : {n} candidature(s) envoyée(s).\n" + stats())
+        messagerie.signaler(f"Aujourd'hui : {n} candidature(s) envoyée(s).\n" + stats())

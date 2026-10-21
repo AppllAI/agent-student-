@@ -190,3 +190,31 @@ def _compter(agent, tier, modele, u):
     with db.tx() as c:
         c.execute("INSERT INTO couts (agent, modele, entree, sortie, cache, eur) VALUES (?,?,?,?,?,?)",
                   (agent, modele, u.input_tokens + cache_ecrit, u.output_tokens, cache_lu, eur))
+
+
+def agir(agent: str, tier: str, systeme: str, messages: list, outils: list, executer, max_tours: int = 8,
+         max_tokens: int = 2500) -> str:
+    """Boucle « agent » : l'IA appelle autant d'outils que nécessaire (chercher, envoyer, changer un réglage…),
+    voit leurs résultats, puis rend sa réponse finale en texte. `executer(nom, args) -> str`."""
+    budget = float(config.env("BUDGET_JOUR_EUR", "3"))
+    if depense_du_jour() >= budget:
+        raise BudgetDepasse(f"Budget du jour atteint ({budget:.2f} €)")
+    modele = MODELES[tier]()
+    for _ in range(max_tours):
+        r = _appel(modele, systeme, messages, outils, {"type": "auto"}, max_tokens, reflexion=False)
+        _compter(agent, tier, modele, r.usage)
+        messages.append({"role": "assistant", "content": [b.model_dump(exclude_none=True) for b in r.content]})
+        appels = [b for b in r.content if b.type == "tool_use"]
+        if not appels:
+            return "\n".join(b.text for b in r.content if b.type == "text").strip()
+        resultats = []
+        for b in appels:
+            try:
+                sortie = executer(b.name, dict(b.input or {}))
+                erreur = False
+            except Exception as e:
+                sortie, erreur = f"ÉCHEC : {type(e).__name__}: {e}", True
+            resultats.append({"type": "tool_result", "tool_use_id": b.id, "content": str(sortie)[:6000] or "ok",
+                              "is_error": erreur})
+        messages.append({"role": "user", "content": resultats})
+    return ""
