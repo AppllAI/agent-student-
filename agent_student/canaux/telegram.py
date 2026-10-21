@@ -134,11 +134,16 @@ class Telegram:
                     time.sleep(10)
                 continue
             except requests.Timeout:
-                continue                         # attente longue sans message : normal, on réécoute
+                lents = getattr(self, "_lents", 0) + 1
+                self._lents = lents
+                if lents % 5 == 0:               # une fois : normal ; 5 de suite : vrai souci de réseau
+                    print("Telegram : la connexion est très lente ou coupée, je réessaie…", flush=True)
+                continue
             except Exception as e:
                 print("Telegram : pas de connexion internet ?", type(e).__name__, flush=True)
                 time.sleep(10)
                 continue
+            self._lents = 0
             for u in maj:
                 decalage = u["update_id"] + 1
                 try:

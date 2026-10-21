@@ -110,7 +110,9 @@ def _raccourci(t: str) -> bool:
         messagerie.dire("⏸️ En pause : plus aucune recherche ni envoi. « reprendre » quand tu veux.")
     elif b in ("reprendre", "reprends", "go"):
         db.kv_set("pause", False)
-        messagerie.dire("▶️ C'est reparti.")
+        from .. import orchestrateur
+        messagerie.dire("▶️ C'est reparti : je lance une recherche tout de suite et je t'envoie ce que je prépare.")
+        orchestrateur.declencher()
     elif b in ("cherche", "recherche", "cherche maintenant", "scan"):
         from .. import orchestrateur
         messagerie.dire("🔎 Je lance une recherche complète maintenant. Je te montre ce que je trouve.")
