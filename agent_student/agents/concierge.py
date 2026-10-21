@@ -27,6 +27,7 @@ SCHEMA = {
         "ids": {"type": "array", "items": {"type": "integer"}},
         "rdv_id": {"type": ["integer", "null"]}, "creneau": {"type": ["string", "null"]},
         "email_id": {"type": ["integer", "null"]}, "texte": {"type": ["string", "null"]},
+        "jusqu_au": {"type": ["string", "null"], "description": "pause : date de reprise AAAA-MM-JJ si elle en donne une"},
         "reponse": {"type": "string"},
     },
     "required": ["action", "reponse"],
@@ -106,10 +107,10 @@ def _raccourci(t: str) -> bool:
     elif b in ("teste-toi", "testes-toi", "teste toi", "banc", "banc d'essai", "banc-essai"):
         _fond(_banc)
     elif b in ("pause", "stop"):
-        db.kv_set("pause", True)
-        messagerie.dire("⏸️ En pause : plus aucune recherche ni envoi. « reprendre » quand tu veux.")
+        pause()
     elif b in ("reprendre", "reprends", "go"):
         db.kv_set("pause", False)
+        db.kv_set("pause_jusqu", None)
         from .. import orchestrateur
         messagerie.dire("▶️ C'est reparti : je lance une recherche tout de suite et je t'envoie ce que je prépare.")
         orchestrateur.declencher()
@@ -171,7 +172,8 @@ def _contexte():
 def _ia(texte: str):
     try:
         d = llm.demander("concierge", "rapide", llm.prompt("concierge"),
-                         json.dumps({"contexte": _contexte(), "historique": db.historique(8), "message": texte},
+                         json.dumps({"contexte": _contexte(), "aujourd_hui": __import__("datetime").date.today().isoformat(),
+                                    "historique": db.historique(8), "message": texte},
                                     ensure_ascii=False), SCHEMA, max_tokens=700)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"⏸️ {e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
@@ -207,7 +209,9 @@ def _ia(texte: str):
             return _fond(_essai, re.search(r"https?://\S+", texte).group(0))
         elif a == "aide":
             return messagerie.dire(coach.MENU)
-        elif a in ("stats", "pause", "reprendre"):
+        elif a == "pause":
+            return pause(d.get("jusqu_au"), d.get("reponse"))
+        elif a in ("stats", "reprendre"):
             return _raccourci(a)
     except Exception as e:
         db.journal("concierge", f"action {a} en échec : {e}")
@@ -216,6 +220,27 @@ def _ia(texte: str):
 
 
 # ---------- Actions ----------
+def pause(jusqu_au: str | None = None, mot: str | None = None):
+    """Pause simple, ou jusqu'à une date (blocus, examens, vacances) : reprise automatique ce jour-là."""
+    from datetime import date
+    try:
+        fin = date.fromisoformat(jusqu_au[:10]) if jusqu_au else None
+    except ValueError:
+        fin = None
+    if fin and fin <= date.today():
+        fin = None
+    db.kv_set("pause", True)
+    db.kv_set("pause_jusqu", fin.isoformat() if fin else None)
+    debut = (mot.strip() + "\n") if mot else ""
+    if fin:
+        messagerie.dire(f"{debut}⏸️ En pause jusqu'au {fin:%d/%m} : je ne cherche et n'envoie rien. "
+                        "Je reprends tout seul ce jour-là (ou « reprendre » avant).")
+    else:
+        messagerie.dire(f"{debut}⏸️ En pause : plus aucune recherche ni envoi. « reprendre » quand tu veux.",
+                        [[("▶️ Reprendre", "reprendre")]])
+
+
+
 def valider(ids):
     n = 0
     for i in ids:

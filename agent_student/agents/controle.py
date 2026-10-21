@@ -102,6 +102,8 @@ def problemes(o) -> list[str]:
         p.append("adresse du destinataire invalide")
     if not config.chemin_cv().exists():
         p.append("CV manquant")
+    if (o.get("date_limite") or "9999") < __import__("datetime").date.today().isoformat():
+        p.append(f"la date limite ({o['date_limite']}) est passée")
     if not chemin_lettre(o["id"]).exists():
         p.append("PDF de la lettre manquant")
     nom = (config.env("NOM_CANDIDAT") or "").strip()

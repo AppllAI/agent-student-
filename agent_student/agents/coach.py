@@ -51,7 +51,8 @@ MENU = ("📋 *Ce que tu peux me dire* (ou en vocal 🎙️, avec tes mots) :\n"
         "• « teste-toi » → 5 candidatures d'exemple notées, pour juger ma qualité\n"
         "• « pas d'horeca », « ajoute Louvain-la-Neuve », « libre aussi le dimanche » → changer ta recherche\n"
         "• « trop long », « plus simple » → régler le style\n"
-        "• « cherche » · « stats » · « pause » · « reprendre » · « mode »")
+        "• « pause jusqu'au 20 juin » (blocus, vacances) → je reprends tout seul ce jour-là\n"
+        "• « j'ai trouvé un job » · « cherche » · « stats » · « reprendre » · « mode »")
 
 
 def bienvenue():

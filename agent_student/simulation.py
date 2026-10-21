@@ -86,6 +86,8 @@ def repondre(agent: str, contenu: str, schema: dict) -> dict:
         rdv = (d.get("contexte") or {}).get("rdv_proposes") or []
         if rdv and re.search(r"\b(oui|ok|parfait|confirme)", m):
             return {"action": "confirmer_rdv", "rdv_id": rdv[0]["id"], "reponse": "Je confirme !"}
+        if "blocus" in m:
+            return {"action": "pause", "jusqu_au": "2099-06-20", "reponse": "Bon courage pour le blocus 💪"}
         if "essayer" in m or "voir si ça marche" in m:
             return {"action": "banc", "reponse": "Je me teste"}
         if "longue" in m or "formel" in m:

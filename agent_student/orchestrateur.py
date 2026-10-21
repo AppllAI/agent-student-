@@ -34,7 +34,16 @@ def _proteger(nom, f, *a):
 
 
 def en_pause() -> bool:
-    return bool(db.kv_get("pause", False))
+    if not db.kv_get("pause", False):
+        return False
+    fin = db.kv_get("pause_jusqu")
+    if fin and datetime.now().date().isoformat() >= fin:      # fin du blocus / des vacances : on reprend seul
+        db.kv_set("pause", False)
+        db.kv_set("pause_jusqu", None)
+        messagerie.dire("▶️ Fin de ta pause : je reprends la recherche et les candidatures. Bonne reprise !")
+        declencher()
+        return False
+    return True
 
 
 def pret() -> bool:

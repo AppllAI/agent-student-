@@ -165,6 +165,13 @@ class Circuit(unittest.TestCase):
         self.assertTrue(db.kv_get("pause"))
         concierge.recevoir(Entrant(texte="reprendre"))
         self.assertFalse(db.kv_get("pause"))
+        concierge.recevoir(Entrant(texte="je suis en blocus, mets en pause jusqu'au 20 juin"))
+        self.assertTrue(db.kv_get("pause"))
+        self.assertEqual(db.kv_get("pause_jusqu"), "2099-06-20")
+        self.assertIn("20/06", self.dernier())
+        db.kv_set("pause_jusqu", "2000-01-01")                         # la date est passée → reprise seule
+        self.assertFalse(orchestrateur.en_pause())
+        self.assertFalse(db.kv_get("pause"))
         concierge.recevoir(Entrant(texte="mes lettres sont trop longues"))
         self.assertIn("180 mots", config.style_texte())
         concierge.recevoir(Entrant(texte="mode validation"))

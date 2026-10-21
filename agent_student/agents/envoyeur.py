@@ -104,6 +104,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
     envoyees = 0
     offres = db.q("SELECT * FROM offres WHERE statut='validee' "
                   "ORDER BY COALESCE(publie_le, date(cree_le)) DESC, score DESC")
+    repetees = []
     for o in offres:
         if not o["email_contact"]:
             _formulaire(o)
@@ -121,6 +122,20 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
         try:
             m = construire(o, repetition)
             expedier(m)
+        except (smtplib.SMTPAuthenticationError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected,
+                OSError) as e:
+            # Souci de BOÎTE MAIL (mot de passe changé, pas d'internet, Gmail qui limite) : ce n'est pas la faute
+            # de cette candidature → on la garde, on arrête ce tour, et on te prévient UNE fois par demi-journée.
+            db.journal("envoyeur", f"boîte mail indisponible : {type(e).__name__}: {e}")
+            if time.time() - float(db.kv_get("alerte_smtp", 0) or 0) > 12 * 3600:
+                db.kv_set("alerte_smtp", time.time())
+                auth = isinstance(e, smtplib.SMTPAuthenticationError)
+                messagerie.dire("📮 Je n'arrive pas à me connecter à ta boîte mail"
+                                + (" : le mot de passe d'application est refusé. Recrée-en un (Google → Sécurité → "
+                                   "Mots de passe des applications) et colle-le dans ⚙ Réglages." if auth else
+                                   " (internet coupé ou Gmail qui freine). Je réessaie toutes les 10 min.")
+                                + " Tes candidatures sont gardées, rien n'est perdu.")
+            break
         except Exception as e:
             db.changer_statut(o["id"], "erreur", "envoyeur", f"envoi impossible : {e}")
             messagerie.dire(f"⚠️ Envoi impossible à {o['entreprise']} : {e}")
@@ -128,12 +143,20 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
         maintenant = datetime.now().isoformat(" ", "seconds")
         if repetition:
             db.changer_statut(o["id"], "repetee", "envoyeur", "répétition : envoyé à toi seulement", envoye_le=maintenant)
-            messagerie.dire(f"📬 Répétition : la candidature pour *{o['entreprise']}* est dans ta boîte mail "
+            repetees.append(o)
+            if len(repetees) <= 3:
+                messagerie.dire(f"📬 Répétition : la candidature pour *{o['entreprise']}* est dans ta boîte mail "
                             "(rien n'est parti chez l'employeur). Regarde si tu l'aurais envoyée telle quelle.",
-                            [[("🚀 L'envoyer pour de vrai", f"vrai {o['id']}"), ("✍️ À améliorer", f"montre {o['id']}")]])
+                                [[("🚀 L'envoyer pour de vrai", f"vrai {o['id']}"),
+                                  ("✍️ À améliorer", f"montre {o['id']}")]])
         else:
             db.changer_statut(o["id"], "envoyee", "envoyeur", message_id=m["Message-ID"], envoye_le=maintenant)
         envoyees += 1
         if not repetition and not config.simulation():
             time.sleep(random.randint(*pause_secondes))  # rythme humain, évite les filtres anti-spam
+    if len(repetees) > 3:
+        messagerie.dire(f"📬 Et {len(repetees) - 3} autres sont dans ta boîte mail (répétition, rien n'est parti) : "
+                        + ", ".join(f"{o['id']}. {o['entreprise'] or o['titre']}" for o in repetees[3:15])
+                        + ("…" if len(repetees) > 15 else "")
+                        + "\n« vrai 12 » pour en envoyer une pour de vrai · « mode validation » quand tu es prêt·e.")
     return envoyees
