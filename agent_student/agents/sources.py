@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import time
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 
 from .. import config, db, llm, outils
 
@@ -175,9 +175,15 @@ def recherche_web(n_requetes: int = 1) -> int:
 
 def veille_gratuite() -> int:
     dom = config.domaine_actif()
-    with ThreadPoolExecutor(3) as ex:
-        lots = list(ex.map(lambda f: _sur(f, dom, f.__name__.strip("_")), (_listes, _jobspy, _pages)))
-    return enregistrer([o for lot in lots for o in lot])
+    # Une source qui ne répond plus (Indeed bloque parfois sans jamais rendre la main) ne doit JAMAIS
+    # bloquer l'agent : chacune a 3 minutes, ensuite on avance avec ce qu'on a.
+    ex = ThreadPoolExecutor(3)
+    futurs = {ex.submit(_sur, f, dom, f.__name__.strip("_")): f.__name__.strip("_") for f in (_listes, _jobspy, _pages)}
+    fini, pas_fini = wait(futurs, timeout=180)
+    ex.shutdown(wait=False, cancel_futures=True)
+    for f in pas_fini:
+        db.journal("eclaireur", f"{futurs[f]} trop lent (> 3 min) : ignoré pour cette fois")
+    return enregistrer([o for f in fini for o in (f.result() or [])])
 
 
 def chercher() -> int:

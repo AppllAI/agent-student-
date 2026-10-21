@@ -1,5 +1,5 @@
 """Agent Student — une équipe d'agents IA qui postule à ta place et te parle sur WhatsApp."""
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 import sys as _sys
 
