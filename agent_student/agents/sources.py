@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import time
 import xml.etree.ElementTree as ET
+import re
 from concurrent.futures import ThreadPoolExecutor, wait
 
 from .. import config, db, llm, outils
@@ -39,7 +40,7 @@ SCHEMA_OFFRES = {
 # Un lien d'annonce = une URL dont le chemin ressemble à ces motifs (pas les pages de liste ni de recherche)
 MOTIFS_ANNONCE = (
     r"student\.be/(?:fr|nl|en)/(?:jobs-etudiants|studentenjobs|student-jobs)/[a-z0-9]+(?:-[a-z0-9]+){2,}/?$",
-    r"studentjob\.be/(?:offre|vacatures)/\d+-[a-z0-9-]+/?$",
+    r"studentjob\.be/(?:offre|vacatures?)/\d+-[a-z0-9-]+/?$",
     r"/(?:offre|offres|job|jobs|emploi|vacature|vacatures)/[^/?#]*\d{3,}[^/?#]*/?$",
 )
 
@@ -72,13 +73,44 @@ def _liens_annonces(page: str, base: str) -> list[tuple[str, str]]:
     return sortie
 
 
+# Noms des villes tels que les sites étudiants les écrivent dans leurs adresses
+_VILLES = {"bruxelles": ("bruxelles", "brussel"), "brussel": ("bruxelles", "brussel"), "malines": ("mechelen",) * 2,
+           "mechelen": ("mechelen",) * 2, "anvers": ("antwerpen",) * 2, "antwerpen": ("antwerpen",) * 2,
+           "louvain": ("leuven",) * 2, "leuven": ("leuven",) * 2, "gand": ("gent",) * 2, "gent": ("gent",) * 2,
+           "liege": ("liege", "luik"), "namur": ("namur", "namen"), "mons": ("mons", "bergen"),
+           "louvain-la-neuve": ("louvain-la-neuve",) * 2, "charleroi": ("charleroi",) * 2, "bruges": ("brugge",) * 2,
+           "brugge": ("brugge",) * 2, "wavre": ("wavre", "waver"), "nivelles": ("nivelles", "nijvel"),
+           "ottignies": ("ottignies",) * 2, "hasselt": ("hasselt",) * 2, "courtrai": ("kortrijk",) * 2,
+           "kortrijk": ("kortrijk",) * 2, "alost": ("aalst",) * 2, "aalst": ("aalst",) * 2, "arlon": ("arlon",) * 2,
+           "tournai": ("tournai", "doornik"), "verviers": ("verviers",) * 2}
+
+
+def _pages_de_listes(dom: dict) -> list[str]:
+    """Les listes que tu as indiquées + Student.be et StudentJob (FR et NL) pour CHACUNE de tes villes."""
+    urls = list(dom.get("listes_a_surveiller") or [])
+    for v in dom.get("villes") or []:
+        cle = re.sub(r"[^a-z-]", "", outils.sans_accents(v).replace(" ", "-"))
+        fr, nl = _VILLES.get(cle, (cle, cle))
+        urls += [f"https://www.student.be/fr/{fr}/jobs-etudiants/", f"https://www.student.be/nl/{nl}/studentenjobs/",
+                 f"https://fr.studentjob.be/offres-d-emploi/{fr}", f"https://www.studentjob.be/vacatures/{nl}"]
+    vus = []
+    for u in urls:
+        if u not in vus:
+            vus.append(u)
+    return vus[:16]
+
+
 def _listes(dom: dict) -> list[dict]:
     sortie = []
-    for url in dom.get("listes_a_surveiller") or []:
+    for url in _pages_de_listes(dom):
         try:
             page = outils.telecharger(url)
         except Exception as e:
-            db.journal("eclaireur", f"liste {url} : {type(e).__name__}")
+            # adresse de ville inconnue du site (404) : on le note une fois par jour, sans insister
+            cle = f"liste_ko_{url}"
+            if db.kv_get(cle) != str(__import__("datetime").date.today()):
+                db.kv_set(cle, str(__import__("datetime").date.today()))
+                db.journal("eclaireur", f"liste {url} : {type(e).__name__}")
             continue
         liens = _liens_annonces(page, url)
         if not liens:
@@ -90,22 +122,33 @@ def _listes(dom: dict) -> list[dict]:
 
 # ---------- Indeed via JobSpy (optionnel) ----------
 def _jobspy(dom: dict) -> list[dict]:
+    """Indeed + Google Jobs (Google regroupe les offres des agences d'intérim — Randstad, Start People, Tempo-Team,
+    Adecco… — et des sites des enseignes). Seulement les offres des 4 derniers jours."""
     try:
         from jobspy import scrape_jobs
     except ImportError:
         return []
-    sortie = []
-    for mot in dom.get("mots_cles_recherche", [])[:4]:
-        for ville in (dom.get("villes") or ["Belgique"])[:3]:
-            df = scrape_jobs(site_name=["indeed"], location=ville,
-                             search_term=mot if "tudiant" in mot else f"job étudiant {mot}",
-                             country_indeed="belgium", results_wanted=20, hours_old=24 * 7)
-            for _, r in df.iterrows():
-                sortie.append({"url": r.get("job_url"), "titre": r.get("title"), "entreprise": r.get("company"),
-                               "ville": r.get("location"), "description": (r.get("description") or "")[:4000],
-                               "email_contact": (outils.emails_dans(str(r.get("emails") or "")) or [None])[0],
-                               "publie_le": str(r.get("date_posted") or "")[:10] or None, "source": "indeed"})
-    return sortie
+    mots = [m if "tudiant" in m or "student" in m.lower() else f"job étudiant {m}"
+            for m in (dom.get("mots_cles_recherche") or ["job étudiant"])[:4]]
+    villes = (dom.get("villes") or ["Belgique"])[:3]
+
+    def une(mot, ville):
+        try:
+            df = scrape_jobs(site_name=["indeed", "google"], location=ville, search_term=mot,
+                             google_search_term=f"{mot} {ville} depuis 3 jours", country_indeed="belgium",
+                             results_wanted=15, hours_old=24 * 4)
+        except Exception as e:
+            db.journal("eclaireur", f"Indeed/Google « {mot} » : {type(e).__name__}")
+            return []
+        return [{"url": r.get("job_url"), "titre": r.get("title"), "entreprise": r.get("company"),
+                 "ville": r.get("location"), "description": (r.get("description") or "")[:4000],
+                 "email_contact": (outils.emails_dans(str(r.get("emails") or "")) or [None])[0],
+                 "publie_le": str(r.get("date_posted") or "")[:10] or None, "source": r.get("site") or "indeed"}
+                for _, r in df.iterrows()]
+
+    with ThreadPoolExecutor(4) as ex:
+        lots = list(ex.map(lambda mv: une(*mv), [(m, v) for m in mots for v in villes]))
+    return [o for lot in lots for o in lot if o["url"] and o["titre"]]
 
 
 # ---------- Pages surveillées ----------

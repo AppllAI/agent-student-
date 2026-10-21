@@ -1,8 +1,8 @@
 """Agent Envoyeur (sans IA) : envoie CV + lettre par email, comme un humain le ferait.
 
 Modes (config/objectif.yaml → envoi.mode) :
-  • repetition : TEST. L'email complet (pièces jointes comprises) part vers TA boîte, jamais vers l'employeur.
-                 Objet préfixé « [RÉPÉTITION → adresse de l'employeur] ». Tu vois exactement ce qui serait parti.
+  • repetition : TEST. Chaque candidature (pièces jointes comprises) part vers l'adresse email de ton CV,
+                 jamais vers l'employeur. Objet « [TEST n°12 → adresse de l'employeur] ». Rien sur ta messagerie.
   • validation / auto : envoi réel à l'employeur.
 Garde-fous : Contrôleur avant chaque envoi, heures de bureau (le matin d'abord), plafond journalier,
 espacement entre envois, offres fraîches en priorité. En SIMULATION, rien ne sort : fichiers .eml dans donnees/sortie/."""
@@ -41,15 +41,22 @@ def construire(o, repetition: bool = False) -> EmailMessage:
     moi = config.env("EMAIL_ADRESSE", "moi@exemple.be")
     m = EmailMessage()
     m["From"] = f"{config.env('NOM_CANDIDAT')} <{moi}>" if config.env("NOM_CANDIDAT") else moi
-    m["To"] = moi if repetition else o["email_contact"]
-    m["Subject"] = (f"[RÉPÉTITION → {o['email_contact']}] " if repetition else "") + o["objet_mail"]
+    m["To"] = config.email_test() if repetition else o["email_contact"]
+    dest = o["email_contact"] or "via leur site"
+    m["Subject"] = (f"[TEST n°{o['id']} → {dest}] " if repetition else "") + o["objet_mail"]
     m["Date"] = formatdate(localtime=True)
     m["Message-ID"] = make_msgid(domain=moi.split("@")[-1])
     corps = o["corps_mail"]
     if repetition:
-        corps = ("🧪 RÉPÉTITION — cet email n'a PAS été envoyé à l'employeur. Voici exactement ce qu'il aurait reçu.\n"
-                 f"Destinataire prévu : {o['email_contact']} · Offre : {o['url']}\n"
-                 f"Adéquation {o['score']}/10 · note du Juge {o['note_lettre']}/10\n" + "─" * 40 + "\n\n" + corps)
+        via = (f"Destinataire prévu : {o['email_contact']}" if o["email_contact"] else
+               "⚠️ Cette offre se postule SUR LEUR SITE : ouvre le lien, colle ce message et joins les 2 PDF")
+        soucis = o["_soucis"] if "_soucis" in o.keys() else None
+        corps = ("🧪 TEST — rien n'a été envoyé à l'employeur. Voici exactement ce qu'il recevrait.\n"
+                 f"{o['titre']} — {o['entreprise'] or '?'} ({o['ville'] or '?'})\n{via}\nOffre : {o['url']}\n"
+                 f"Adéquation {o['score']}/10 · note du Juge {o['note_lettre']}/10"
+                 + (f"\n🛑 En vrai, je l'aurais BLOQUÉE : {soucis}" if soucis else "")
+                 + "\nPour l'envoyer pour de vrai : écris « vrai " + str(o["id"]) + " » à l'agent.\n"
+                 + "─" * 40 + "\n\n" + corps)
     m.set_content(corps)
     cv = config.chemin_cv()
     if cv.exists():
@@ -92,35 +99,37 @@ def expedier(m: EmailMessage):
 
 def _formulaire(o):
     db.changer_statut(o["id"], "manuelle", "envoyeur", "candidature via le site de l'employeur")
-    test = " (ici c'est toi qui cliques, même en mode répétition)" \
-        if config.regles_envoi()["mode"] == "repetition" else ""
-    messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site{test}. Ta lettre est prête "
+    messagerie.dire(f"🌐 *{o['entreprise'] or o['titre']}* se postule sur leur site. Ta lettre est prête "
                     f"(PDF ci-dessous) : ouvre le lien, colle-la, envoie.\n{o['url']}",
                     [[("✅ C'est fait", f"fait {o['id']}"), ("❌ Laisser tomber", f"ecarte {o['id']}")]])
     messagerie.fichier(chemin_lettre(o["id"]), f"Lettre – {o['entreprise'] or ''}")
 
 
 def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
+    """Mode TEST (répétition) : TOUT part vers l'adresse de ton CV, même les offres « via leur site » et celles
+    que le Contrôleur bloquerait (avec l'explication), pour que tu vérifies forme et pièces jointes.
+    Rien sur ta messagerie. Mode réel : envoi aux employeurs, aux heures ouvrables, au rythme humain."""
     regles = config.regles_envoi()
-    reels = set(db.kv_get("envoi_reel_ids", []))   # « L'envoyer pour de vrai » pendant la répétition
+    reels = set(db.kv_get("envoi_reel_ids", []))   # « vrai 12 » pendant le test
     envoyees = 0
-    offres = db.q("SELECT * FROM offres WHERE statut='validee' "
-                  "ORDER BY COALESCE(publie_le, date(cree_le)) DESC, score DESC")
-    repetees = []
+    offres = [dict(o) for o in db.q("SELECT * FROM offres WHERE statut='validee' "
+                                    "ORDER BY COALESCE(publie_le, date(cree_le)) DESC, score DESC")]
     for o in offres:
-        if not o["email_contact"]:
-            _formulaire(o)
-            continue
         repetition = regles["mode"] == "repetition" and o["id"] not in reels
-        soucis = controle.problemes(o)
-        if soucis:
-            db.changer_statut(o["id"], "a_valider", "controleur", "à relire : contrôle — " + " ; ".join(soucis))
-            messagerie.dire(f"🛑 J'ai bloqué l'envoi à *{o['entreprise']}* : " + " ; ".join(soucis),
-                            [[("👁 Voir", f"montre {o['id']}"), ("❌ Écarter", f"ecarte {o['id']}")]])
-            continue
-        if not repetition and not config.simulation():
-            if not heure_ouvrable(regles) or envoyes_aujourdhui() >= regles["max_par_jour"] or envoyees >= max_par_cycle:
+        soucis = controle.problemes(o) if o["email_contact"] or repetition else []
+        if not repetition:
+            if not o["email_contact"]:
+                _formulaire(o)
+                continue
+            if soucis:
+                db.changer_statut(o["id"], "a_valider", "controleur", "à relire : contrôle — " + " ; ".join(soucis))
+                messagerie.dire(f"🛑 J'ai bloqué l'envoi à *{o['entreprise']}* : " + " ; ".join(soucis),
+                                [[("👁 Voir", f"montre {o['id']}"), ("❌ Écarter", f"ecarte {o['id']}")]])
+                continue
+            if not config.simulation() and (not heure_ouvrable(regles) or envoyees >= max_par_cycle
+                                            or envoyes_aujourdhui() >= regles["max_par_jour"]):
                 break
+        o["_soucis"] = " ; ".join(soucis) if soucis else None
         try:
             m = construire(o, repetition)
             expedier(m)
@@ -140,25 +149,19 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
             break
         except Exception as e:
             db.changer_statut(o["id"], "erreur", "envoyeur", f"envoi impossible : {e}")
-            messagerie.dire(f"⚠️ Envoi impossible à {o['entreprise']} : {e}")
+            messagerie.signaler(f"⚠️ Envoi impossible à {o['entreprise']} : {e}")
             continue
         maintenant = datetime.now().isoformat(" ", "seconds")
         if repetition:
-            db.changer_statut(o["id"], "repetee", "envoyeur", "répétition : envoyé à toi seulement", envoye_le=maintenant)
-            repetees.append(o)
-            if len(repetees) <= 3:
-                messagerie.dire(f"📬 Répétition : la candidature pour *{o['entreprise']}* est dans ta boîte mail "
-                            "(rien n'est parti chez l'employeur). Regarde si tu l'aurais envoyée telle quelle.",
-                                [[("🚀 L'envoyer pour de vrai", f"vrai {o['id']}"),
-                                  ("✍️ À améliorer", f"montre {o['id']}")]])
+            if o["email_contact"]:
+                db.changer_statut(o["id"], "repetee", "envoyeur", f"test : envoyé à {config.email_test()}",
+                                  envoye_le=maintenant)
+            else:   # via leur site : reste « à faire via site » pour plus tard, sans te déranger
+                db.changer_statut(o["id"], "manuelle", "envoyeur", f"test (via site) : envoyé à {config.email_test()}")
+            db.journal("envoyeur", f"test n°{o['id']} → {config.email_test()} ({o['entreprise'] or o['titre']})")
         else:
             db.changer_statut(o["id"], "envoyee", "envoyeur", message_id=m["Message-ID"], envoye_le=maintenant)
         envoyees += 1
         if not repetition and not config.simulation():
             time.sleep(random.randint(*pause_secondes))  # rythme humain, évite les filtres anti-spam
-    if len(repetees) > 3:
-        messagerie.dire(f"📬 Et {len(repetees) - 3} autres sont dans ta boîte mail (répétition, rien n'est parti) : "
-                        + ", ".join(f"{o['id']}. {o['entreprise'] or o['titre']}" for o in repetees[3:15])
-                        + ("…" if len(repetees) > 15 else "")
-                        + "\n« vrai 12 » pour en envoyer une pour de vrai · « mode validation » quand tu es prêt·e.")
     return envoyees

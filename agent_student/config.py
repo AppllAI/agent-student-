@@ -115,5 +115,17 @@ def profil_texte() -> str:
     return texte + ("\n\n## Disponibilités (déclarées par la personne)\n" + "\n".join(lignes) if lignes else "")
 
 
+def email_test() -> str:
+    """Mode test : les candidatures arrivent sur l'adresse écrite dans ton CV (sinon celle de l'agent)."""
+    import re
+    profil = profil_texte()
+    lignes = [l for l in profil.splitlines() if "mail" in l.lower()] + [profil]
+    for l in lignes:
+        m = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", l)
+        if m:
+            return m.group(0).lower()
+    return env("EMAIL_ADRESSE", "moi@exemple.be")
+
+
 def chemin_cv() -> Path:
     return PROFIL_DIR / "cv.pdf"

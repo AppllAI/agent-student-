@@ -65,7 +65,7 @@ class Circuit(unittest.TestCase):
         cv.write_bytes(b"%PDF-1.4 faux")
         concierge.recevoir(Entrant(fichier=cv, nom_fichier="mon_cv.pdf"))
         self.assertTrue(config.chemin_cv().exists())
-        (config.PROFIL_DIR / "profil.md").write_text("# Profil\n- Nom : Alex Test\n- Bachelier en sciences éco ULB\n- Caissier, Delhaize Ixelles\n",
+        (config.PROFIL_DIR / "profil.md").write_text("# Profil\n- Nom : Alex Test\n- Email : alex.test@exemple.be\n- Bachelier en sciences éco ULB\n- Caissier, Delhaize Ixelles\n",
                                                       encoding="utf-8")
         concierge.recevoir(Entrant(texte="Je veux que de la vente à Bruxelles, pas d'horeca, dispo le samedi"))
         dom = config.domaine_actif()
@@ -77,35 +77,34 @@ class Circuit(unittest.TestCase):
         self.assertIn("🧪", self.dernier())                    # mode répétition par défaut, rappelé partout
 
     def test_2_recherche_et_tri(self):
+        avant = len(self.canal.messages)
         orchestrateur.pipeline()
         st = {r["entreprise"]: (r["statut"], r["raison"]) for r in db.q("SELECT * FROM offres")}
         self.assertEqual(st["Brasserie Themis"][0], "ecartee")            # horeca exclu
         self.assertIn("secteur exclu", st["Brasserie Themis"][1])
         self.assertEqual(st["Nordlog"][0], "ecartee")                     # hors secteur / néerlandais
-        for e in ("Boutique Lumen", "Delta Store", "Librairie Horizon"):
-            self.assertEqual(st[e][0], "a_valider", e)
+        # Mode test : tout est fait seul et part vers l'email du CV ; « via leur site » reste à faire plus tard
+        for e, attendu in (("Boutique Lumen", "repetee"), ("Librairie Horizon", "repetee"), ("Delta Store", "manuelle")):
+            self.assertEqual(st[e][0], attendu, e)
         self.assertNotIn("Sans Email & Co", st)                            # spontanée sans email vérifié : non
         self.assertEqual(offre("Librairie Horizon")["source"], "spontanee")
         self.assertEqual(offre("Boutique Lumen")["note_lettre"], 9)
         self.assertIn("caisse", offre("Boutique Lumen")["pourquoi"])
-        cartes = [b for b in self.canal.boutons if b and b[0][0][1].startswith("ok ")]
-        self.assertGreaterEqual(len(cartes), 3)                            # une carte + boutons par candidature
+        self.assertEqual(self.canal.messages[avant:], [])                 # mode test : RIEN sur la messagerie
+        self.assertEqual(self.canal.fichiers, [])
+        sortis = emails_sortis()
+        self.assertEqual(len(sortis), 3)                                   # y compris l'offre « via leur site »
+        import email
+        for f in sortis:
+            m = email.message_from_bytes(f.read_bytes())
+            self.assertEqual(m["To"], "alex.test@exemple.be")             # l'adresse du CV, jamais l'employeur
+            self.assertIn("[TEST n°", str(email.header.make_header(email.header.decode_header(m["Subject"]))))
+            self.assertEqual(len([p for p in m.walk() if p.get_filename()]), 2)   # CV + lettre
         orchestrateur.pipeline()                                           # 2e passage : aucun doublon
         self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM offres")["n"], 5)
 
     def test_3_repetition_puis_vrai(self):
-        concierge.recevoir(Entrant(texte="ok"))
-        lumen, delta, horizon = offre("Boutique Lumen"), offre("Delta Store"), offre("Librairie Horizon")
-        self.assertEqual(lumen["statut"], "repetee")
-        self.assertEqual(horizon["statut"], "repetee")
-        self.assertEqual(delta["statut"], "manuelle")                     # formulaire : lien + lettre
-        sortis = emails_sortis()
-        self.assertEqual(len(sortis), 2)
-        for f in sortis:
-            import email
-            m = email.message_from_bytes(f.read_bytes())
-            self.assertEqual(m["To"], "moi@exemple.be")                    # vers MOI, pas l'employeur
-            self.assertIn("RÉPÉTITION", str(email.header.make_header(email.header.decode_header(m["Subject"]))))
+        lumen, delta = offre("Boutique Lumen"), offre("Delta Store")
         concierge.recevoir(Entrant(texte=f"vrai {lumen['id']}"))          # « L'envoyer pour de vrai »
         self.assertEqual(offre("Boutique Lumen")["statut"], "envoyee")
         self.assertTrue(offre("Boutique Lumen")["message_id"])

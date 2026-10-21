@@ -166,7 +166,7 @@ def rediger(limite: int = 12):
             db.journal("redacteur", f"échec {essais}/3 : {type(e).__name__}: {e}", o["id"])
             if essais >= 3:   # on arrête de payer pour une offre qui plante
                 db.changer_statut(o["id"], "erreur", "redacteur", f"lettre impossible : {e}")
-                messagerie.dire(f"⚠️ Je n'arrive pas à écrire la lettre pour *{o['entreprise'] or o['titre']}* "
+                messagerie.signaler(f"⚠️ Je n'arrive pas à écrire la lettre pour *{o['entreprise'] or o['titre']}* "
                                 f"({type(e).__name__}). Je l'ai mise de côté.")
             return
         ecrire_pdf(v["lettre"], dossier / f"lettre_{o['id']}.pdf")
@@ -174,7 +174,8 @@ def rediger(limite: int = 12):
         db.changer_statut(o["id"], "redigee", "redacteur",
                           None if bonne else "à relire : " + "; ".join(v["corrections"])[:300],
                           lettre=v["lettre"], objet_mail=v["objet"], corps_mail=v["email"], note_lettre=v["note"])
-        auto = regles["mode"] == "auto" and bonne
+        # Mode test : tout part tout seul vers ta boîte (même les lettres moyennes, avec leur note) pour que tu juges
+        auto = (regles["mode"] == "auto" and bonne) or regles["mode"] == "repetition"
         db.changer_statut(o["id"], "validee" if auto else "a_valider", "redacteur")
 
     # 3 lettres en même temps : 3× plus rapide, même coût

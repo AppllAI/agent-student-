@@ -32,7 +32,8 @@ SCHEMA = {
     },
     "required": ["action", "reponse"],
 }
-MODES = {"repetition": "🧪 Répétition : tout est réel, mais les emails partent vers TA boîte, jamais vers les employeurs.",
+MODES = {"repetition": "🧪 Test : je fais tout seul et j'envoie chaque candidature à l'adresse de ton CV (jamais aux "
+                       "employeurs). Je ne t'écris plus ici, regarde ta boîte mail.",
          "validation": "✋ Validation : je t'envoie chaque candidature, rien ne part sans ton ✅.",
          "auto": "🚀 Auto : j'envoie seul les candidatures que le Juge note ≥ 7/10. Je te préviens pour les entretiens."}
 

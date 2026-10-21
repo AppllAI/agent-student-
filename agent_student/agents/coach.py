@@ -61,8 +61,9 @@ def bienvenue():
                     "*Pour démarrer :*\n1️⃣ Envoie ton CV en PDF ici (même court, c'est normal)\n"
                     "2️⃣ Dis-moi ce que tu cherches : type de job, ville, et surtout *quand tu es dispo* "
                     "(jours, heures, période)\n\n"
-                    "🧪 Je démarre en *mode répétition* : les emails arrivent dans TA boîte, jamais chez les "
-                    "employeurs, tant que tu ne me dis pas « mode validation ».\n\n" + MENU)
+                    "🧪 Je démarre en *mode test* : je fais tout seul et j'envoie chaque candidature (avec CV et "
+                    "lettre) à l'adresse email de ton CV, jamais aux employeurs. Ici, je reste silencieux. "
+                    "Quand tout te plaît : « mode validation ».\n\n" + MENU)
 
 
 def parler(texte: str):

@@ -27,6 +27,27 @@ def _prefixe(texte: str) -> str:
     return f"🧪 {texte}" if mode == "repetition" and not texte.startswith("🧪") else texte
 
 
+def en_test() -> bool:
+    try:
+        return config.regles_envoi()["mode"] == "repetition"
+    except Exception:
+        return False
+
+
+def signaler(texte: str, boutons: Boutons | None = None):
+    """Notification du travail de fond. En mode TEST : rien sur ta messagerie (tout arrive par email),
+    seulement une ligne dans le journal de l'application."""
+    if en_test():
+        db.journal("agent", texte.replace("\n", " ")[:160])
+        return
+    dire(texte, boutons)
+
+
+def signaler_fichier(chemin, legende=""):
+    if not en_test():
+        fichier(chemin, legende)
+
+
 def dire(texte: str, boutons: Boutons | None = None):
     texte = _prefixe(texte)
     db.dire("agent", texte)

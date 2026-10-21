@@ -55,7 +55,9 @@ _PAS_ETUDIANT = re.compile(r"(?<![a-z])(cdi|stagiaire|internship|stagiair|temps 
                            r"freelance|independant|zelfstandige|commission uniquement|senior|manager)(?![a-z])")
 _ETUDIANT = re.compile(r"(?<![a-z])(etudiant|etudiante|etudiants|student|studenten|studentenjob|jobiste|flexi)")
 # Arnaques et « petits boulots » qui n'en sont pas
-_ARNAQUE = re.compile(r"sondages? remuneres?|gagner de l.argent|argent facile|paid surveys?|mystery shopper|"
+_ARNAQUE = re.compile(r"sondages?|enquetes? (?:en ligne|de chez vous|remunerees?)|repondez a des|gagnez de l.argent|"
+                      r"jeux en ligne|jouant a des jeux|teletravail.{0,20}sondage|"
+                      r"gagner de l.argent|argent facile|paid surveys?|mystery shopper|"
                       r"vendeur a domicile|marketing de reseau|crypto|trading|frais d.inscription|mlm")
 # Une langue n'est éliminatoire que si l'annonce l'EXIGE (sinon c'est un atout : l'Évaluateur pèse)
 _EXIGE = re.compile(r"exig|obligatoire|indispensable|requis|imperati|courant|couramment|bilingue|parfait|native|"
