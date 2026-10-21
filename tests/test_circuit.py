@@ -51,6 +51,7 @@ class Circuit(unittest.TestCase):
     def setUpClass(cls):
         outils.telecharger = _hors_ligne
         sources._get_json = _hors_ligne                         # aucun vrai site pendant les tests
+        sources._jobspy = lambda dom: []                        # ni Indeed ni Google
         orchestrateur.en_fond = lambda f, *a: f(*a)             # tout en synchrone
         orchestrateur.envoyer_bientot = orchestrateur._envoyer
         orchestrateur.declencher = lambda: None

@@ -132,13 +132,14 @@ def _jobspy(dom: dict) -> list[dict]:
             for m in (dom.get("mots_cles_recherche") or ["job étudiant"])[:4]]
     villes = (dom.get("villes") or ["Belgique"])[:3]
 
-    def une(mot, ville):
+    def une(site, mot, ville):
+        # un site à la fois : si Google change sa page, Indeed continue de marcher (et inversement)
+        extra = {"google_search_term": f"{mot} {ville} depuis 3 jours"} if site == "google" else {}
         try:
-            df = scrape_jobs(site_name=["indeed", "google"], location=ville, search_term=mot,
-                             google_search_term=f"{mot} {ville} depuis 3 jours", country_indeed="belgium",
-                             results_wanted=15, hours_old=24 * 4)
+            df = scrape_jobs(site_name=[site], location=ville, search_term=mot, country_indeed="belgium",
+                             results_wanted=15, hours_old=24 * 4, **extra)
         except Exception as e:
-            db.journal("eclaireur", f"Indeed/Google « {mot} » : {type(e).__name__}")
+            db.journal("eclaireur", f"{site} « {mot} » : {type(e).__name__}")
             return []
         return [{"url": r.get("job_url"), "titre": r.get("title"), "entreprise": r.get("company"),
                  "ville": r.get("location"), "description": (r.get("description") or "")[:4000],
@@ -147,7 +148,8 @@ def _jobspy(dom: dict) -> list[dict]:
                 for _, r in df.iterrows()]
 
     with ThreadPoolExecutor(4) as ex:
-        lots = list(ex.map(lambda mv: une(*mv), [(m, v) for m in mots for v in villes]))
+        lots = list(ex.map(lambda smv: une(*smv), [(s, m, v) for s in ("indeed", "google") for m in mots
+                                                    for v in villes]))
     return [o for lot in lots for o in lot if o["url"] and o["titre"]]
 
 

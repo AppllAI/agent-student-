@@ -5,7 +5,18 @@
 import platform
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
+
+# JobSpy (Indeed + Google Jobs) et sa bibliothèque réseau (fichiers natifs) : tout embarquer
+extra_datas, extra_bins, extra_imports = [], [], []
+for paquet in ("jobspy", "tls_client"):
+    try:
+        d, b, h = collect_all(paquet)
+        extra_datas += d
+        extra_bins += b
+        extra_imports += h
+    except Exception:
+        pass
 
 WINDOWS = platform.system() == "Windows"
 pont = Path("build/pont") / ("pont-whatsapp.exe" if WINDOWS else "pont-whatsapp")
@@ -15,9 +26,10 @@ a = Analysis(
     datas=[("agent_student/prompts", "agent_student/prompts"),
            ("agent_student/objectif_exemple.yaml", "agent_student"),
            ("agent_student/banc_essai.json", "agent_student"),
-           ("assets/icone_256.png", "assets")] + collect_data_files("tzdata"),
-    binaries=[(str(pont), "pont")] if pont.exists() else [],
-    hiddenimports=collect_submodules("agent_student") + collect_submodules("anthropic") + ["qrcode", "pypdf", "fpdf", "tzdata"],
+           ("assets/icone_256.png", "assets")] + collect_data_files("tzdata") + extra_datas,
+    binaries=([(str(pont), "pont")] if pont.exists() else []) + extra_bins,
+    hiddenimports=collect_submodules("agent_student") + collect_submodules("anthropic") + extra_imports
+                  + ["qrcode", "pypdf", "fpdf", "tzdata"],
     excludes=["pytest", "numpy.tests"],
 )
 pyz = PYZ(a.pure)
