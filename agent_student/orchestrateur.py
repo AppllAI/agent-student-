@@ -84,8 +84,11 @@ def traitement():
 def veille():
     if en_pause() or not pret():
         return
+    db.journal("eclaireur", "recherche en cours (Student.be, StudentJob, Indeed, pages suivies)…")
     nouvelles = _proteger("veille", sources.veille_gratuite) or 0
     en_attente = db.q1("SELECT COUNT(*) AS n FROM offres WHERE statut IN ('decouverte','enrichie','qualifiee')")["n"]
+    db.journal("eclaireur", f"recherche finie : {nouvelles} nouvelle(s) offre(s) · {en_attente} en traitement"
+                            f" · prochaine dans {config.env_int('INTERVALLE_VEILLE_MIN', 30)} min")
     if nouvelles or en_attente:
         traitement()
 
@@ -173,7 +176,8 @@ def demarrer(canal):
         # Nouvelles règles (langues « atout » ≠ « exigée », note minimum 5) : on redonne leur chance
         # aux offres récentes écartées par les anciennes règles.
         db.kv_set("regles_v2_appliquees", True)
-        _proteger("evaluateur", evaluateur.reevaluer_recentes, 21, True)
+        n = _proteger("evaluateur", evaluateur.reevaluer_recentes, 21, True) or 0
+        db.journal("evaluateur", f"nouvelles règles : {n} offre(s) écartée(s) récemment sont réévaluées")
     file: queue.Queue = queue.Queue()
 
     def ouvrier():
