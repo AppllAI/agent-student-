@@ -50,6 +50,18 @@ def _contient(texte: str, terme: str) -> bool:
     return re.search(rf"(?<![a-z]){re.escape(terme)}(?![a-z])", texte) is not None
 
 
+# Pas un job étudiant (quand tu ne cherches QUE ça) : CDI, stage, temps plein, indépendant…
+_PAS_ETUDIANT = re.compile(r"(?<![a-z])(cdi|stagiaire|internship|stagiair|temps plein|full[- ]?time|voltijds|"
+                           r"freelance|independant|zelfstandige|commission uniquement|senior|manager)(?![a-z])")
+_ETUDIANT = re.compile(r"(?<![a-z])(etudiant|etudiante|etudiants|student|studenten|studentenjob|jobiste|flexi)")
+# Arnaques et « petits boulots » qui n'en sont pas
+_ARNAQUE = re.compile(r"sondages? remuneres?|gagner de l.argent|argent facile|paid surveys?|mystery shopper|"
+                      r"vendeur a domicile|marketing de reseau|crypto|trading|frais d.inscription|mlm")
+# Une langue n'est éliminatoire que si l'annonce l'EXIGE (sinon c'est un atout : l'Évaluateur pèse)
+_EXIGE = re.compile(r"exig|obligatoire|indispensable|requis|imperati|courant|couramment|bilingue|parfait|native|"
+                    r"fluent|required|vereist|vlot|must")
+
+
 def verdict(o: dict, dom: dict, regles: dict) -> str | None:
     """Renvoie la raison de rejet, ou None si l'offre passe."""
     secteur = sans_accents(o.get("secteur") or "")
@@ -65,6 +77,14 @@ def verdict(o: dict, dom: dict, regles: dict) -> str | None:
     if seules and secteur and secteur not in ("generaliste", "divers"):
         if not any(_contient(tout, t) for m in seules for t in _termes(m)):
             return f"hors secteurs voulus ({', '.join(seules)})"
+
+    if _ARNAQUE.search(tout):
+        return "ressemble à une arnaque ou à des sondages rémunérés"
+    contrats = " ".join(sans_accents(c) for c in dom.get("contrats") or [])
+    if contrats and _ETUDIANT.search(contrats) and not any(m in contrats for m in ("cdi", "stage", "cdd", "temps plein")):
+        signal = f"{titre} {sans_accents(o.get('contrat') or '')}"
+        if _PAS_ETUDIANT.search(signal) and not _ETUDIANT.search(signal):
+            return "pas un job étudiant (CDI, stage ou temps plein)"
 
     for e in dom.get("exclure_entreprises") or []:
         if sans_accents(e) in sans_accents(o.get("entreprise") or ""):
@@ -87,7 +107,7 @@ def verdict(o: dict, dom: dict, regles: dict) -> str | None:
     if langue and connues:
         exigees = [x for x in ("neerlandais", "anglais", "allemand", "francais") if x in langue]
         manquantes = [x for x in exigees if not any(x in c for c in connues)]
-        if manquantes and ("bilingue" in langue or "+" in langue or " et " in langue or len(exigees) == 1):
+        if manquantes and _EXIGE.search(langue):
             return f"langue exigée non maîtrisée : {', '.join(manquantes)}"
     return None
 

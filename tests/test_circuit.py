@@ -231,6 +231,12 @@ class ListesEtudiantes(unittest.TestCase):
             ("https://fr.studentjob.be/offre/4567-hote-accueil", "Hote accueil")])
 
 
+    def test_liens_dans_json(self):                # site construit en JavaScript
+        page = '<script>{"jobs":[{"url":"\\/fr\\/jobs-etudiants\\/exki-equipier-arts-loi\\/"}]}</script>'
+        liens = sources._liens_annonces(page, "https://www.student.be/fr/bruxelles/jobs-etudiants/")
+        self.assertEqual([u for u, _ in liens], ["https://www.student.be/fr/jobs-etudiants/exki-equipier-arts-loi/"])
+
+
 class AnnoncePrecise(unittest.TestCase):
     def test_pages_de_liste_rejetees(self):
         a = sources.annonce_precise
@@ -253,6 +259,13 @@ class Garde(unittest.TestCase):
         dom["secteurs_uniquement"] = ["garde d'enfants"]
         self.assertIsNotNone(v(titre="Caissier", secteur="vente"))
         self.assertIsNone(v(titre="Babysitter 3 soirs", secteur="baby-sitting"))
+        dom.update(secteurs_uniquement=[], contrats=["contrat étudiant"])
+        self.assertIsNone(v(titre="Vendeur", langue="anglais"))                 # atout, pas exigé
+        self.assertIsNotNone(v(titre="Vendeur", langue="anglais courant exigé"))
+        self.assertIsNotNone(v(titre="Comptable junior", contrat="CDI temps plein"))
+        self.assertIsNone(v(titre="Animateur de stages sportifs (étudiant)"))
+        self.assertIsNotNone(v(titre="Sondages rémunérés en ligne"))
+        dom["secteurs_uniquement"] = ["garde d'enfants"]
         dom["salaire_min_horaire"] = 12
         self.assertIsNotNone(v(titre="Babysitter", secteur="baby-sitting", salaire_horaire=9.0))
         self.assertIsNone(v(titre="Babysitter", secteur="baby-sitting", salaire_horaire=12.5))

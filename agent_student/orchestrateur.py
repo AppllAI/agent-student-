@@ -169,6 +169,11 @@ def demarrer(canal):
     db.connexion()
     coach.appliquer_identite()
     messagerie.brancher(canal)
+    if not db.kv_get("regles_v2_appliquees"):
+        # Nouvelles règles (langues « atout » ≠ « exigée », note minimum 5) : on redonne leur chance
+        # aux offres récentes écartées par les anciennes règles.
+        db.kv_set("regles_v2_appliquees", True)
+        _proteger("evaluateur", evaluateur.reevaluer_recentes, 21, True)
     file: queue.Queue = queue.Queue()
 
     def ouvrier():

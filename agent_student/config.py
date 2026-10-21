@@ -74,11 +74,19 @@ def sauver_objectif(o: dict) -> None:
 
 
 def regles_envoi() -> dict:
-    defaut = {"mode": "repetition", "max_par_jour": 25, "score_minimum": 7, "note_lettre_minimum": 7,
+    defaut = {"mode": "repetition", "max_par_jour": 40, "score_minimum": 5, "note_lettre_minimum": 7,
               "heures_envoi": [8, 19], "jours_envoi": [0, 1, 2, 3, 4, 5],
               "relance_apres_jours": 5, "delai_meme_cabinet_jours": 45,
-              "candidatures_spontanees_par_jour": 3}
-    defaut.update(objectif().get("envoi") or {})
+              "candidatures_spontanees_par_jour": 5}
+    obj = objectif()
+    envoi = dict(obj.get("envoi") or {})
+    if int(obj.get("version") or 1) < 2:
+        # Objectif créé par la v0.1 : on passe aux réglages « job étudiant = beaucoup d'envois »,
+        # sauf si tu avais toi-même changé ces valeurs.
+        for cle, ancien in (("max_par_jour", 25), ("score_minimum", 7), ("candidatures_spontanees_par_jour", 3)):
+            if envoi.get(cle) == ancien:
+                envoi.pop(cle)
+    defaut.update(envoi)
     return defaut
 
 

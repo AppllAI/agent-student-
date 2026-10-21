@@ -51,7 +51,11 @@ def _liens_annonces(page: str, base: str) -> list[tuple[str, str]]:
     from urllib.parse import urljoin
 
     vus, sortie = set(), []
-    for href, texte in re.findall(r'<a[^>]+href="([^"#]+)"[^>]*>(.*?)</a>', page, re.S | re.I):
+    liens = re.findall(r"""<a\b[^>]*?href\s*=\s*["']([^"'#]+)["'][^>]*>(.*?)</a>""", page, re.S | re.I)
+    # Pages construites en JavaScript : les liens sont dans des données JSON, pas dans des <a>
+    liens += [(u.replace("\\/", "/"), "") for u in
+              re.findall(r"""["']((?:https?:\\?/\\?/[a-z0-9.-]+)?(?:\\?/[a-z0-9_.-]+){2,6}\\?/?)["']""", page, re.I)]
+    for href, texte in liens:
         url = urljoin(base, unescape(href)).split("?")[0]
         if url in vus or not any(re.search(m, url) for m in MOTIFS_ANNONCE):
             continue
@@ -73,7 +77,7 @@ def _listes(dom: dict) -> list[dict]:
             continue
         liens = _liens_annonces(page, url)
         if not liens:
-            db.journal("eclaireur", f"liste {url} : aucune annonce reconnue (le site a peut-être changé)")
+            db.journal("eclaireur", f"liste {url} : aucune annonce reconnue (page de {len(page)} caractères)")
         sortie += [{"url": u, "titre": t, "source": "liste"} for u, t in liens[:40]]
         time.sleep(1)                            # politesse envers le site
     return sortie

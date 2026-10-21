@@ -31,20 +31,28 @@ def evaluer(taille_lot: int = 8):
               "langues", "contrats", "exclure_entreprises", "disponibilites", "periode",
               "heures_max_par_semaine", "salaire_min_horaire", "permis_ou_vehicule")
     systeme = llm.prompt("evaluateur") + "\n\n## Objectif\n" + \
-        json.dumps({k: dom.get(k) for k in utiles if dom.get(k) not in (None, "", [])}, ensure_ascii=False) + \
+        json.dumps({k: dom.get(k) for k in utiles if dom.get(k) not in (None, "", [], 0)}, ensure_ascii=False) + \
         "\n\n## Profil\n" + config.profil_texte()
-    retenues = 0
-    for i in range(0, len(offres), taille_lot):
-        lot = offres[i:i + taille_lot]
+    lots = [offres[i:i + taille_lot] for i in range(0, len(offres), taille_lot)]
+
+    def noter(lot):
         contenu = json.dumps([{k: (o[k][:1500] if k == "description" and o[k] else o[k]) for k in CHAMPS}
                               for o in lot], ensure_ascii=False)
         try:
-            notes = llm.demander("evaluateur", "rapide", systeme, contenu, SCHEMA, max_tokens=2500)["notes"]
+            return llm.demander("evaluateur", "rapide", systeme, contenu, SCHEMA, max_tokens=2500)["notes"]
         except llm.BudgetDepasse:
-            return retenues
+            return None
         except Exception as e:
             db.journal("evaluateur", f"lot en échec, réessai au prochain cycle : {type(e).__name__}: {e}")
-            notes = []
+            return []
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(3) as ex:            # 3 lots à la fois : 30 offres notées en ~10 s au lieu de 30
+        resultats = list(ex.map(noter, lots))
+    retenues = 0
+    for lot, notes in zip(lots, resultats):
+        if notes is None:                        # budget atteint : ce lot attendra demain
+            continue
         notees = set()
         for n in notes:
             try:

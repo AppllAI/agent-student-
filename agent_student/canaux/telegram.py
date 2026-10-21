@@ -133,6 +133,8 @@ class Telegram:
                     print("Telegram :", e, flush=True)
                     time.sleep(10)
                 continue
+            except requests.Timeout:
+                continue                         # attente longue sans message : normal, on réécoute
             except Exception as e:
                 print("Telegram : pas de connexion internet ?", type(e).__name__, flush=True)
                 time.sleep(10)
