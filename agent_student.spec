@@ -42,5 +42,5 @@ else:
     coll = COLLECT(exe, a.binaries, a.datas, name="AgentStudent", upx=False)
     app = BUNDLE(coll, name="Agent Student.app", icon="assets/icone_1024.png",
                  bundle_identifier="be.agentstudent.app",
-                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "0.7.0",
+                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "0.8.0",
                              "LSApplicationCategoryType": "public.app-category.productivity"})

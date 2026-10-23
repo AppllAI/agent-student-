@@ -343,5 +343,55 @@ class Outils(unittest.TestCase):
         self.assertEqual(len(json.loads(essai.BANC.read_text(encoding="utf-8"))), 5)
 
 
+class ZRobustesse(unittest.TestCase):
+    """Ce qui fait qu'un agent « ne fait rien » doit être dit clairement, une seule fois."""
+
+    def setUp(self):
+        self.canal = CanalTest()
+        messagerie.brancher(self.canal)
+
+    def test_ia_indisponible_bloque_sans_insister(self):
+        from agent_student import llm
+        db.kv_set("ia_bloquee_jusqu", None)
+        with self.assertRaises(llm.IAIndisponible):
+            llm._bloquer("crédit Anthropic épuisé")
+        with self.assertRaises(llm.BudgetDepasse):          # les agents l'attrapent comme un budget atteint
+            llm._verifier_disponible()
+        db.kv_set("ia_bloquee_jusqu", 0)
+        llm._verifier_disponible()                          # délai passé : on réessaie
+
+    def test_alerte_une_seule_fois(self):
+        from agent_student import llm
+        llm._alerte("essai_unique", "Ton crédit Claude est épuisé")
+        llm._alerte("essai_unique", "Ton crédit Claude est épuisé")
+        self.assertEqual(sum("crédit" in m for m in self.canal.messages), 1)
+
+    def test_budget_reglable(self):
+        concierge.recevoir(Entrant(texte="budget 5"))
+        self.assertEqual(config.env("BUDGET_JOUR_EUR"), "5")
+        self.assertIn("5 €", self.canal.messages[-1])
+
+    def test_diagnostic(self):
+        from agent_student.agents import diagnostic
+        texte = diagnostic.rapport(envoyer=False)
+        self.assertIn("SIMULATION", texte)
+        db.kv_set("pause", True)
+        self.assertIn("PAUSE", diagnostic.rapport(envoyer=False))
+        db.kv_set("pause", False)
+
+    def test_rappel_via_site_une_fois_par_jour(self):
+        from agent_student.agents import rapporteur
+        o = config.objectif()
+        o.setdefault("envoi", {})["mode"] = "validation"
+        config.sauver_objectif(o)
+        with db.tx() as c:
+            c.execute("INSERT OR IGNORE INTO offres (cle, url, titre, entreprise, statut) VALUES "
+                      "('rappel1', 'https://exemple.be/offre/1', 'Poste', 'Employeur Rappel', 'manuelle')")
+        db.kv_set("dernier_rappel_site", None)
+        rapporteur.rappel_via_site(heure=10)
+        rapporteur.rappel_via_site(heure=10)                     # 2e fois le même jour : rien
+        self.assertEqual(sum("Employeur Rappel" in m for m in self.canal.messages), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

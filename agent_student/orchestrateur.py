@@ -68,9 +68,12 @@ def en_fond(f, *a):
         try:
             f(*a)
         except Exception as e:
+            from . import llm
             db.journal("orchestre", f"{getattr(f, '__name__', 'tâche')} a échoué : {type(e).__name__}: {e}")
-            messagerie.dire(f"⚠️ Oups, ça a planté de mon côté ({type(e).__name__}). "
-                            "Envoie une capture de « Ce que font les agents » au développeur.")
+            if isinstance(e, llm.BudgetDepasse):     # budget / crédit : déjà annoncé une fois, clairement
+                return
+            messagerie.dire(f"⚠️ Ça a coincé de mon côté ({type(e).__name__} : {str(e)[:120]}). "
+                            "Écris « diagnostic » pour que je vérifie tout.")
     threading.Thread(target=tache, daemon=True).start()
 
 
@@ -141,6 +144,7 @@ def horaire():
     if en_pause():
         return
     _proteger("relance", relance.relancer)
+    _proteger("rappel", rapporteur.rappel_via_site)
     if datetime.now().hour >= 19:
         _proteger("bilan", rapporteur.bilan_du_jour)
 
@@ -210,6 +214,9 @@ def demarrer(canal):
         coach.bienvenue()
     db.journal("orchestre", f"démarré · canal {canal.nom} · mode {config.regles_envoi()['mode']}"
                             f"{' · SIMULATION' if config.simulation() else ''}")
+    if not config.simulation():
+        from .agents import diagnostic
+        en_fond(diagnostic.au_demarrage)
     if en_pause():
         db.journal("orchestre", "⏸️ EN PAUSE : aucune recherche ni envoi tant que tu n'écris pas « reprendre »")
         messagerie.dire("Je suis en pause : je ne cherche et n'envoie rien. Écris « reprendre » pour que je m'y remette.",

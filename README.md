@@ -23,6 +23,10 @@ jointes) à **l'adresse email écrite dans ton CV**, jamais aux employeurs. Rien
 « mode validation », puis « vrai tout » pour envoyer pour de vrai celles que tu as reçues en test.
 Détails : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Si quelque chose ne marche pas, écris « **diagnostic** » : en 10 secondes, il vérifie la clé IA et le crédit, la boîte
+mail (envoi et lecture), le CV, la pause et le budget, et te dit précisément ce qui bloque. « budget 5 » change le
+plafond de dépense IA par jour. Crédit Claude épuisé ? Il te prévient une fois et reprend tout seul après la recharge.
+
 ## L'application
 
 Télécharge la dernière version dans l'onglet **Releases** de ce dépôt :

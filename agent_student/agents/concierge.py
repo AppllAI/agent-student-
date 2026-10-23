@@ -146,6 +146,11 @@ def _raccourci(t: str) -> bool:
         details(_ids(b)[0])
     elif re.fullmatch(r"fait\s+[\d ,et]+", b):
         _fait(_ids(b))
+    elif m := re.fullmatch(r"budget\s+(\d+(?:[.,]\d+)?)", b):
+        regler_budget(float(m.group(1).replace(",", ".")))
+    elif b in ("diagnostic", "verifie", "verifie tout", "check"):
+        from . import diagnostic
+        _fond(diagnostic.rapport, True)
     elif b in ("vrai tout", "envoie tout pour de vrai", "tout pour de vrai"):
         _vrai_tout()
     elif re.fullmatch(r"vrai\s+\d+", b):
@@ -280,7 +285,7 @@ def valider(ids):
     from .. import orchestrateur
     mode = config.regles_envoi()["mode"]
     if mode == "repetition":
-        msg = f"🧪 {n} candidature(s) validée(s) : je te les envoie dans TA boîte mail pour vérifier (répétition)."
+        msg = f"{n} candidature(s) validée(s) : mode test, elles arrivent sur {config.email_test()}."
     else:
         msg = (f"✅ {n} candidature(s) validée(s). Elles partent une par une, aux heures de bureau "
                "(le matin d'abord : c'est là qu'il y a le plus de réponses).")
@@ -319,11 +324,27 @@ def noter_style(remarque: str):
     messagerie.dire("Noté : toutes les prochaines lettres en tiendront compte.")
 
 
+def regler_budget(euros: float):
+    """« budget 5 » : plafond de dépense IA par jour, enregistré dans les réglages (et appliqué tout de suite)."""
+    import os
+    euros = max(0.5, min(euros, 50.0))
+    os.environ["BUDGET_JOUR_EUR"] = f"{euros:g}"
+    try:
+        from ..app import reglages
+        reglages.ecrire_env(config.RACINE, {"BUDGET_JOUR_EUR": f"{euros:g}"})
+    except Exception as e:
+        db.journal("concierge", f"budget non enregistré dans .env : {e}")
+    messagerie.dire(f"Budget IA : {euros:g} € par jour.")
+
+
 def _changer_mode(mode: str):
     o = config.objectif()
     o.setdefault("envoi", {})["mode"] = mode
     config.sauver_objectif(o)
-    messagerie.dire(MODES[mode])
+    texte = MODES[mode]
+    if mode == "auto":
+        texte = texte.replace("≥ 7/10", f"≥ {config.regles_envoi()['note_lettre_minimum']}/10")
+    messagerie.dire(texte)
     if mode != "repetition":
         n = db.q1("SELECT COUNT(*) AS n FROM offres WHERE statut='repetee' AND date(envoye_le) >= date('now', '-14 days')")["n"]
         if n:
@@ -347,7 +368,7 @@ def _vrai_tout():
 def _vrai(i):
     o = db.q1("SELECT statut FROM offres WHERE id=?", i)
     if not o or o["statut"] != "repetee":
-        return messagerie.dire("Cette candidature n'est pas en répétition.")
+        return messagerie.dire("Cette candidature n'a pas été envoyée en test (ou est déjà partie).")
     db.kv_set("envoi_reel_ids", sorted(set(db.kv_get("envoi_reel_ids", [])) | {i}))
     db.changer_statut(i, "validee", "concierge", "envoi réel demandé")
     messagerie.dire("OK, celle-ci part pour de vrai chez l'employeur (aux heures de bureau).")

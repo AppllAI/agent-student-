@@ -38,7 +38,7 @@ def brancher(canal):
 
 
 def _prefixe(texte: str) -> str:
-    """En mode répétition, chaque message le rappelle : impossible de confondre avec le vrai."""
+    """(Ancien préfixe 🧪 du mode test : retiré, le mode est rappelé seulement quand c'est utile.)"""
     try:
         mode = config.regles_envoi()["mode"]
     except Exception:

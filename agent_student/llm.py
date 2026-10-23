@@ -30,6 +30,39 @@ class BudgetDepasse(RuntimeError):
     pass
 
 
+class IAIndisponible(BudgetDepasse):
+    """Crédit Anthropic épuisé ou clé refusée : comme un budget atteint, les agents IA s'arrêtent proprement
+    (tout le reste continue) et on réessaie tout seul plus tard."""
+
+
+def _alerte(cle: str, texte: str, heures: float = 6):
+    """Un message important, mais au plus une fois toutes les `heures` (pas de rafale)."""
+    from . import messagerie
+    if time.time() - float(db.kv_get(f"alerte_{cle}", 0) or 0) > heures * 3600:
+        db.kv_set(f"alerte_{cle}", time.time())
+        messagerie.dire(texte)
+
+
+def _verifier_disponible():
+    bloque = float(db.kv_get("ia_bloquee_jusqu", 0) or 0)
+    if time.time() < bloque:
+        raise IAIndisponible(db.kv_get("ia_bloquee_raison") or "IA indisponible pour le moment")
+
+
+def _bloquer(raison: str, minutes: int = 30):
+    db.kv_set("ia_bloquee_jusqu", time.time() + minutes * 60)
+    db.kv_set("ia_bloquee_raison", raison)
+    raise IAIndisponible(raison)
+
+
+def _budget_atteint(plafond: float, priorite: str):
+    if priorite != "fond":      # la limite « fond » (70 %) est normale ; la limite totale mérite un mot
+        _alerte(f"budget_{date.today().isoformat()}",
+                f"Budget IA du jour atteint ({plafond:.2f} €). Je reprends demain matin ; les commandes courtes "
+                "(stats, ok 12, pause…) marchent toujours. Pour l'augmenter : « budget 5 ».", heures=24)
+    raise BudgetDepasse(f"Budget du jour atteint ({plafond:.2f} € pour les tâches {priorite})")
+
+
 def depense_du_jour() -> float:
     r = db.q1("SELECT COALESCE(SUM(eur),0) AS s FROM couts WHERE date(le)=?", date.today().isoformat())
     return float(r["s"])
@@ -76,7 +109,8 @@ def demander(agent: str, tier: str, systeme: str, contenu: str, schema: dict,
     budget = float(config.env("BUDGET_JOUR_EUR", "3"))
     plafond = budget * (PART_FOND if priorite == "fond" else 1)
     if depense_du_jour() >= plafond:
-        raise BudgetDepasse(f"Budget du jour atteint ({plafond:.2f} € pour les tâches {priorite})")
+        _budget_atteint(plafond, priorite)
+    _verifier_disponible()
 
     outil = {"name": "repondre", "description": "Rends ta réponse finale structurée.", "input_schema": schema}
     tools = [outil]
@@ -163,7 +197,16 @@ def _appel(modele, systeme, messages, tools, choix, max_tokens, reflexion=True):
                 system=[{"type": "text", "text": systeme, "cache_control": {"type": "ephemeral"}}],
                 messages=messages, tools=tools, tool_choice=choix, **extra,
             )
+        except anthropic.AuthenticationError:
+            _alerte("cle", "Ta clé API Claude est refusée (supprimée ou mal copiée). Crée-en une sur "
+                           "console.anthropic.com → API Keys et colle-la dans ⚙ Réglages. Le reste continue.")
+            _bloquer("clé API refusée")
         except anthropic.BadRequestError as e:
+            if "credit balance" in str(e).lower() or "billing" in str(e).lower():
+                _alerte("credit", "⚠️ Ton crédit Claude est épuisé : plus de lettres ni de réponses intelligentes "
+                                  "pour l'instant. Recharge sur console.anthropic.com → Billing ; je reprends tout "
+                                  "seul dans les 30 minutes qui suivent. Rien n'est perdu.")
+                _bloquer("crédit Anthropic épuisé")
             if "thinking" in str(e) and extra:
                 _SANS_REGLAGE_REFLEXION.add(modele)   # ce modèle ne se règle pas : on n'insiste pas
                 continue
@@ -198,7 +241,8 @@ def agir(agent: str, tier: str, systeme: str, messages: list, outils: list, exec
     voit leurs résultats, puis rend sa réponse finale en texte. `executer(nom, args) -> str`."""
     budget = float(config.env("BUDGET_JOUR_EUR", "3"))
     if depense_du_jour() >= budget:
-        raise BudgetDepasse(f"Budget du jour atteint ({budget:.2f} €)")
+        _budget_atteint(budget, "essentiel")
+    _verifier_disponible()
     modele = MODELES[tier]()
     for _ in range(max_tours):
         r = _appel(modele, systeme, messages, outils, {"type": "auto"}, max_tokens, reflexion=False)

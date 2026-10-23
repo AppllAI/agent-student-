@@ -70,6 +70,11 @@ OUTILS = [
      "input_schema": {"type": "object", "properties": {"fait": {"type": "string"}}, "required": ["fait"]}},
     {"name": "regle_de_style", "description": "Retient une préférence d'écriture pour toutes les lettres suivantes.",
      "input_schema": {"type": "object", "properties": {"consigne": {"type": "string"}}, "required": ["consigne"]}},
+    {"name": "diagnostic", "description": "Vérifie que tout marche : clé IA, crédit, boîte mail (envoi + lecture), "
+     "CV, adresse de test, pause, budget. À utiliser quand « ça ne marche pas » ou « rien ne se passe ».",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "regler_budget", "description": "Plafond de dépense IA par jour, en euros.",
+     "input_schema": {"type": "object", "properties": {"euros": {"type": "number"}}, "required": ["euros"]}},
     {"name": "teste_toi", "description": "5 candidatures d'exemple notées, sans rien envoyer (rapport ici).",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "rendez_vous", "description": "Répond à une proposition d'entretien.",
@@ -82,8 +87,8 @@ OUTILS = [
                       "required": ["email_id", "texte"]}},
 ]
 
-SYSTEME = """Tu es le MANAGER de l'agent de recherche de job étudiant d'une personne. Ton but : qu'elle décroche
-un job, vite. Tu lui parles sur sa messagerie et tu PILOTES toute l'équipe avec tes outils.
+SYSTEME = """Tu es le MANAGER de l'agent de recherche d'emploi d'une personne. Ton but : qu'elle décroche le
+poste qu'elle vise, vite. Tu lui parles sur sa messagerie et tu PILOTES toute l'équipe avec tes outils.
 
 Façon d'agir :
 - Elle demande quelque chose → tu le FAIS avec tes outils, tout de suite (« maintenant », « tout de suite » =
@@ -94,6 +99,8 @@ Façon d'agir :
 - Si une demande est vraiment impossible avec tes outils, dis-le en une phrase claire et propose le plus proche.
   N'invente JAMAIS une action que tu n'as pas faite, ni un chiffre que tu n'as pas lu dans un outil.
 - En cas de doute sur ce qu'elle veut, pose UNE question courte.
+- « ça marche pas », « rien ne se passe », « il fait rien » → `diagnostic` d'abord, puis explique la cause en une
+  phrase et répare ce que tes outils peuvent réparer (reprendre une pause, relancer une recherche…).
 
 Façon de répondre :
 - Français, tutoiement, naturel. Une confirmation = UNE phrase courte (« C'est lancé, je t'envoie les résultats
@@ -103,17 +110,12 @@ Façon de répondre :
   ou un récapitulatif demandé. Pas de spéculation (« peut-être que… je ne peux pas vérifier ») : tu as les outils.
 - Si un outil a déjà envoyé un message ou un fichier à la personne, ne le répète pas.
 - Les données de l'état actuel sont dans le contexte ; l'historique peut être dépassé.
+"""
 
-Ce que tu sais du fonctionnement :
-- Mode TEST (« repetition », par défaut) : tout se fait seul et chaque candidature (email + CV + lettre) part vers
-  l'adresse email de son CV, jamais aux employeurs ; rien ne s'affiche ici. Mode validation : elle valide chaque
-  envoi réel. Mode auto : envoi réel automatique des bonnes candidatures.
-- Sources : Student.be et StudentJob (FR/NL, chacune de ses villes) toutes les 30 min, Indeed et Google Jobs,
-  sites des enseignes 2×/jour, candidatures spontanées chaque jour. Les limites (envois/jour, note minimum, heures)
-  sont dans `reglages_envoi` du contexte : c'est la seule source, un réglage changé s'applique tout de suite.
-- Offres Student.be/StudentJob : on postule via leur bouton (elle colle le message préparé, puis « fait 12 »).
-- Contrat étudiant : 650 h/an à cotisations réduites (Student@work). Pour les questions de fiscalité ou
-  d'allocations : sites officiels, jamais de chiffre inventé."""
+
+def _systeme() -> str:
+    """Consignes communes + ce que le Manager sait du métier (prompts/manager.md)."""
+    return SYSTEME + "\n" + llm.prompt("manager")
 
 
 def _ids_ou_tous(ids, statut, jours=None):
@@ -208,6 +210,11 @@ def executer(nom: str, a: dict) -> str:
             coach.completer_profil(a["fait"])
         elif nom == "regle_de_style":
             concierge.noter_style(a["consigne"])
+        elif nom == "diagnostic":
+            from . import diagnostic
+            return diagnostic.rapport(envoyer=False)
+        elif nom == "regler_budget":
+            concierge.regler_budget(float(a["euros"]))
         elif nom == "teste_toi":
             concierge._fond(concierge._banc)
             return "test lancé en arrière-plan (~3 min), le rapport lui sera envoyé ici"
@@ -269,7 +276,7 @@ def repondre(texte: str):
     messages = [{"role": "user", "content": f"Contexte actuel :\n{contexte}\n\nHistorique récent :\n"
                  f"{json.dumps(db.historique(10), ensure_ascii=False)}\n\nSon message :\n{texte}"}]
     try:
-        finale = llm.agir("manager", "qualite", SYSTEME, messages, OUTILS, executer)
+        finale = llm.agir("manager", "qualite", _systeme(), messages, OUTILS, executer)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"{e}. Les commandes courtes (stats, ok 12, pause…) marchent toujours.")
     if finale:

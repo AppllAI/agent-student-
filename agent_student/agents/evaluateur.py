@@ -12,8 +12,9 @@ SCHEMA = {
         "type": "object",
         "properties": {"id": {"type": "integer"},
                        "regle": {"type": ["string", "null"], "enum": [
-                           "secteur_exclu", "hors_secteurs_voulus", "ville", "langue_exigee", "horaires_impossibles",
-                           "trop_d_heures", "permis_vehicule", "pas_un_job_etudiant", None],
+                           "secteur_exclu", "hors_secteurs_voulus", "ville", "langue_exigee", "contrat_non_voulu",
+                           "niveau_experience", "horaires_impossibles", "trop_d_heures", "permis_vehicule",
+                           "pas_un_job_etudiant", "employeur_exclu", None],
                            "description": "la règle STRICTE clairement violée, sinon null"},
                        "regle_violee": {"type": "boolean"},
                        "score": {"type": "integer", "minimum": 1, "maximum": 10}, "raison": {"type": "string"},

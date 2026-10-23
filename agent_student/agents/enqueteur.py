@@ -1,6 +1,6 @@
 """Agent Enquêteur : 2-3 faits vérifiés sur l'employeur + email de recrutement manquant.
 Il travaille pour les meilleures offres (score ≥ 8, la personnalisation paie) et pour toute offre
-retenue sans email : sur Student.be / StudentJob, trouver l'email de l'employeur = postuler directement par email
+retenue sans email : sur un site d'emploi à formulaire, trouver l'email de l'employeur = postuler directement par email
 au lieu de te faire coller la lettre à la main."""
 from __future__ import annotations
 
@@ -20,8 +20,9 @@ SCHEMA = {
 
 
 def _plateforme(o) -> bool:
-    """Offre publiée sur Student.be / StudentJob : on postule par leur bouton, l'employeur la reçoit à coup sûr."""
-    return any(p in (o["url"] or "") for p in ("student.be/", "studentjob.be", "stujobs."))
+    """Offre publiée sur un site d'emploi à formulaire : on postule par leur bouton, l'employeur la reçoit à coup sûr."""
+    return any(p in (o["url"] or "") for p in ("student.be/", "studentjob.be", "stujobs.", "lexgo.", "jobat.",
+                                              "stepstone.", "linkedin.", "indeed.", "legalworld."))
 
 
 def enqueter(score_min: int = 8, max_par_jour: int = 25):
@@ -38,7 +39,7 @@ def enqueter(score_min: int = 8, max_par_jour: int = 25):
         infos = {"faits": [], "destinataire": None}
         nom = (o["entreprise"] or "").strip().lower()
         cache = db.kv_get(f"enquete:{nom}") if nom else None
-        # Student.be / StudentJob : on postule par leur bouton → l'enquête ne sert qu'aux meilleures (faits)
+        # Site d'emploi à formulaire : on postule par leur bouton → l'enquête ne sert qu'aux meilleures (faits)
         besoin = o["entreprise"] and ((o["score"] or 0) >= score_min
                                       or (not o["email_contact"] and not _plateforme(o)))
         if cache:
@@ -77,7 +78,7 @@ def enqueter(score_min: int = 8, max_par_jour: int = 25):
 
 
 def _email(o, email):
-    """Sur Student.be / StudentJob, on ne quitte le bouton « Postuler » que pour une VRAIE adresse de recrutement
+    """Sur un site d'emploi à formulaire, on ne quitte le bouton « Postuler » que pour une VRAIE adresse de recrutement
     (jobs@, rh@, recrutement@…) : un helpdesk@ ou info@ d'une chaîne ne lit pas les candidatures."""
     if not email or o["email_contact"]:
         return

@@ -40,6 +40,24 @@ def stats() -> str:
     return "\n".join(lignes)
 
 
+def rappel_via_site(heure: int | None = None):
+    """Une fois par jour (matin) : les candidatures prêtes à coller sur le site de l'employeur, qui attendent.
+    Rien en mode test (elles sont déjà dans tes emails de test)."""
+    from datetime import datetime
+    from .. import config
+    if config.regles_envoi()["mode"] == "repetition" or (datetime.now().hour if heure is None else heure) < 9:
+        return
+    if db.kv_get("dernier_rappel_site") == date.today().isoformat():
+        return
+    rows = db.q("SELECT id, entreprise, titre, url FROM offres WHERE statut='manuelle' "
+                "AND date(maj_le) >= date('now', '-10 days') ORDER BY score DESC LIMIT 15")
+    db.kv_set("dernier_rappel_site", date.today().isoformat())
+    if rows:
+        messagerie.dire(f"Rappel : {len(rows)} candidature(s) prête(s) à envoyer via leur site (lettre prête) :\n"
+                        + "\n".join(f"*{r['id']}.* {r['entreprise'] or r['titre']} — {r['url']}" for r in rows)
+                        + "\n« montre 12 » pour la lettre, « fait 12 » quand c'est envoyé, « ecarte 12 » sinon.")
+
+
 def bilan_du_jour():
     if db.kv_get("dernier_bilan") == date.today().isoformat():
         return
