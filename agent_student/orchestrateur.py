@@ -6,7 +6,7 @@
   Traitement         : Extracteur → Garde → Évaluateur → Enquêteur → Rédacteur ⇄ Juge → cartes sur Telegram
   Toutes les 10 min  : Envoyeur (Contrôleur avant chaque email ; heures de bureau)
   Toutes les 5 min   : Trieur (boîte mail) → Secrétaire si entretien
-  Toutes les heures  : Relanceur, Préparateur d'entretien (la veille), bilan du soir
+  Toutes les heures  : Relanceur, Préparateur d'entretien (la veille), bilan du soir, carnet de bord (mémoire)
   En permanence      : Concierge, qui écoute tes messages ; le travail long part en arrière-plan
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import threading
 import time
 from datetime import datetime
 
-from . import config, db, messagerie
+from . import config, db, memoire, messagerie
 from .agents import (coach, concierge, enqueteur, envoyeur, evaluateur, extracteur, garde, preparateur,
                      prospecteur, rapporteur, redacteur, relance, sources, trieur)
 
@@ -140,6 +140,7 @@ def boite():
 
 
 def horaire():
+    _proteger("carnet", memoire.mettre_a_jour_carnet)       # mémoire : résume les journées écoulées (1 fois chacune)
     _proteger("préparateur", preparateur.preparer)
     if en_pause():
         return

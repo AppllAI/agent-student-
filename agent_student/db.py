@@ -87,6 +87,12 @@ CREATE TABLE IF NOT EXISTS couts (
     le TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS kv (cle TEXT PRIMARY KEY, valeur TEXT);
+-- Mémoire longue (memoire.py) : un résumé par journée écoulée + les souvenirs durables
+CREATE TABLE IF NOT EXISTS carnet (jour TEXT PRIMARY KEY, resume TEXT);
+CREATE TABLE IF NOT EXISTS souvenirs (
+    id INTEGER PRIMARY KEY, genre TEXT, texte TEXT, le TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_conversation_le ON conversation(le);
 """
 
 _c: sqlite3.Connection | None = None
@@ -183,4 +189,6 @@ def dire(role: str, texte: str):
 
 
 def historique(n=12):
-    return [dict(r) for r in q("SELECT role, texte FROM conversation ORDER BY id DESC LIMIT ?", n)][::-1]
+    """Le fil récent, daté (les longs messages de l'agent sont raccourcis : le détail est dans la mémoire)."""
+    return [dict(r) for r in q("SELECT substr(le, 1, 16) AS le, role, substr(texte, 1, 700) AS texte "
+                               "FROM conversation ORDER BY id DESC LIMIT ?", n)][::-1]

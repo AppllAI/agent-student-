@@ -94,6 +94,8 @@ def repondre(agent: str, contenu: str, schema: dict) -> dict:
             return {"action": "pause", "jusqu_au": "2099-06-20", "reponse": "Bon courage pour le blocus 💪"}
         if "essayer" in m or "voir si ça marche" in m:
             return {"action": "banc", "reponse": "Je me teste"}
+        if "longue" in m or "formel" in m:
+            return {"action": "style", "texte": "Lettres plus courtes (180 mots max).", "reponse": "Noté"}
         return {"action": "discuter", "reponse": "Bien noté 👍"}
     if agent == "coach":
         m = d.get("message", "").lower()
@@ -108,6 +110,10 @@ def repondre(agent: str, contenu: str, schema: dict) -> dict:
             return {"reponse": "C'est parti 🚀", "objectif_maj": maj, "termine": True}
         return {"reponse": "Super. Tu es dispo quels jours, et à quelles heures ?", "objectif_maj": maj,
                 "termine": False}
+    if agent == "carnet":
+        return {"resume": "- Elle a demandé une recherche et validé des candidatures.",
+                "a_retenir": [{"genre": "preference", "texte": "Préfère les cabinets de taille moyenne."}]
+                if "cabinets moyens" in contenu else []}
     if agent == "profileur":
         if "lignes" in schema.get("properties", {}):
             return {"lignes": [f"- {d.get('texte', contenu)}"]}
@@ -128,6 +134,10 @@ def manager(texte: str) -> tuple[list, str]:
         return [("pause", {"jusqu_au": "2099-06-20"})], ""
     if "essayer" in m or "voir si ça marche" in m:
         return [("teste_toi", {})], "Je me teste, rapport dans 3 minutes."
+    if "longue" in m or "formel" in m:
+        return [("retenir", {"texte": "Lettres plus courtes (180 mots max).", "genre": "style"})], "Noté."
+    if "souviens" in m or "rappelle" in m:
+        return [("se_souvenir", {"mots": texte})], ""
     if adresse := _re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", texte):
         return [("envoyer_par_email", {"adresse": adresse.group(0)})], ""
     if "ici" in m and "envoie" in m:

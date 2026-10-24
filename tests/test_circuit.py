@@ -16,7 +16,7 @@ sys.path.insert(0, str(RACINE_PROJET))
 
 from agent_student import config, db, messagerie, orchestrateur, outils  # noqa: E402
 from agent_student.agents import controle, envoyeur, essai, garde, relance, sources, trieur  # noqa: E402
-from agent_student.agents import concierge  # noqa: E402
+from agent_student.agents import coach, concierge  # noqa: E402
 from agent_student.agents.concierge import Entrant  # noqa: E402
 
 
@@ -178,6 +178,9 @@ class Circuit(unittest.TestCase):
         db.kv_set("pause_jusqu", "2000-01-01")                         # la date est passée → reprise seule
         self.assertFalse(orchestrateur.en_pause())
         self.assertFalse(db.kv_get("pause"))
+        concierge.recevoir(Entrant(texte="mes lettres sont trop longues"))
+        from agent_student import memoire
+        self.assertIn("180 mots", memoire.notes_style())                 # retenu pour toutes les lettres
         concierge.recevoir(Entrant(texte="mode validation"))
         self.assertEqual(config.regles_envoi()["mode"], "validation")
         self.assertNotIn("🧪", self.dernier())
@@ -347,6 +350,46 @@ class Outils(unittest.TestCase):
         self.assertEqual(len(json.loads(essai.BANC.read_text(encoding="utf-8"))), 5)
 
 
+class Memoire(unittest.TestCase):
+    """Il se souvient de ce qu'on lui a dit il y a des jours, sans relire tout l'historique (coût minime)."""
+
+    def test_souvenir_d_il_y_a_5_jours(self):
+        from agent_student import memoire
+        with db.tx() as c:
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('moi', 'Le cabinet Verhaegen à Namur "
+                      "m''intéresse, je préfère les cabinets moyens', datetime('now', '-5 days'))")
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('agent', 'Noté !', datetime('now', '-5 days'))")
+        from datetime import date, timedelta
+        il_y_a_6 = (date.today() - timedelta(days=6)).isoformat()
+        trouves = memoire.chercher("verhaegen", il_y_a_6)
+        self.assertTrue(trouves and "Namur" in trouves[0])
+        self.assertTrue(memoire.chercher("", il_y_a_6, (date.today() - timedelta(days=4)).isoformat()))
+        self.assertEqual(memoire.chercher("verhaegen", date.today().isoformat()), [])   # hors période
+        # Le carnet résume chaque journée UNE fois et garde ce qui reste vrai
+        self.assertGreaterEqual(memoire.mettre_a_jour_carnet(), 1)
+        avant = db.q1("SELECT COUNT(*) AS n FROM carnet")["n"]
+        memoire.mettre_a_jour_carnet()
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM carnet")["n"], avant)        # pas payé deux fois
+        self.assertIn("cabinets de taille moyenne", memoire.contexte())
+        self.assertIn("Carnet de bord", memoire.contexte())
+
+    def test_retenir_et_oublier(self):
+        from agent_student import memoire
+        self.assertTrue(memoire.retenir("Ne plus postuler chez Nordlex.", "decision"))
+        self.assertFalse(memoire.retenir("ne plus postuler chez nordlex.", "decision"))  # pas de doublon
+        self.assertIn("Nordlex", memoire.contexte())
+        self.assertEqual(memoire.oublier("nordlex"), 1)
+        self.assertNotIn("Nordlex", memoire.contexte())
+
+    def test_manager_se_souvient(self):
+        from agent_student.agents import manager
+        with db.tx() as c:
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('moi', 'Pense au cabinet Lambrechts', "
+                      "datetime('now', '-9 days'))")
+        self.assertIn("Lambrechts", manager.executer("se_souvenir", {"mots": "Lambrechts"}))
+        self.assertIn("mémoire", manager._systeme())
+
+
 class SitesEtEmails(unittest.TestCase):
     """Les bonnes infos sur les bons sites, et aucune adresse email devinée."""
 
@@ -433,6 +476,17 @@ class ZRobustesse(unittest.TestCase):
         db.kv_set("pause", True)
         self.assertIn("PAUSE", diagnostic.rapport(envoyer=False))
         db.kv_set("pause", False)
+
+    def test_tout_effacer(self):
+        from agent_student import memoire
+        memoire.retenir("Souvenir à effacer", "fait")
+        avant = db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"]
+        concierge.recevoir(Entrant(texte="tout effacer"))
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"], avant)   # rien sans confirmation
+        concierge.recevoir(Entrant(texte="tout effacer confirme"))
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"], 0)
+        self.assertFalse(config.chemin_cv().exists())
+        self.assertFalse(coach.onboarding_fini())
 
     def test_rappel_via_site_une_fois_par_jour(self):
         from agent_student.agents import rapporteur

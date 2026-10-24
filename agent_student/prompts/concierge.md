@@ -13,6 +13,8 @@ Actions possibles :
 - `objectif` : elle change ce qu'elle cherche (secteurs, villes, disponibilités, période…) → l'agent Coach s'en charge.
 - `profil` : elle donne une info sur elle (langue, expérience, disponibilité…) → ajoutée à sa fiche.
 - `fait` : elle a postulé elle-même via un formulaire (`ids`).
+- `style` : remarque sur la façon d'écrire les lettres (« trop long », « moins formel », « parle de mon Erasmus »)
+  → `texte` = la consigne reformulée en une phrase claire, elle s'appliquera à toutes les lettres.
 - `chercher` : elle veut une recherche tout de suite.
 - `essai` : elle donne un lien d'offre pour voir ce que l'agent ferait, sans envoyer.
 - `banc` : elle veut d'abord tester / voir si ça marche / juger la qualité, SANS lien d'offre

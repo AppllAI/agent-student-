@@ -22,7 +22,7 @@ SCHEMA = {
     "properties": {
         "action": {"type": "string", "enum": [
             "valider", "ecarter", "details", "confirmer_rdv", "autre_date", "decliner_rdv", "repondre_recruteur",
-            "objectif", "profil", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre", "vrai_tout",
+            "objectif", "profil", "style", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre", "vrai_tout",
             "aide", "discuter"]},
         "ids": {"type": "array", "items": {"type": "integer"}},
         "rdv_id": {"type": ["integer", "null"]}, "creneau": {"type": ["string", "null"]},
@@ -151,6 +151,11 @@ def _raccourci(t: str) -> bool:
     elif b in ("diagnostic", "verifie", "verifie tout", "check"):
         from . import diagnostic
         _fond(diagnostic.rapport, True)
+    elif b in ("tout effacer", "efface tout", "reinitialiser", "remise a zero", "reset"):
+        messagerie.dire("⚠️ Ça efface TOUT : ton CV, ton profil, ta recherche, les offres, les lettres et ma mémoire. "
+                        "On repart de zéro. Sûr ?", [[("🗑 Oui, tout effacer", "tout effacer confirme"), ("Non", "aide")]])
+    elif b == "tout effacer confirme":
+        reinitialiser()
     elif b in ("vrai tout", "envoie tout pour de vrai", "tout pour de vrai"):
         _vrai_tout()
     elif re.fullmatch(r"vrai\s+\d+", b):
@@ -203,7 +208,7 @@ def _ia(texte: str):
         # Sonnet : c'est lui qui te comprend, la qualité compte plus que la petite différence de prix
         d = llm.demander("concierge", "qualite", llm.prompt("concierge"),
                          json.dumps({"contexte": _contexte(), "aujourd_hui": __import__("datetime").date.today().isoformat(),
-                                    "historique": db.historique(6), "message": texte},
+                                    "historique": db.historique(10), "message": texte},
                                     ensure_ascii=False), SCHEMA, max_tokens=700, reflexion=False)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"{e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
@@ -227,6 +232,8 @@ def _ia(texte: str):
             return coach.parler(texte)
         elif a == "profil":
             return coach.completer_profil(texte)
+        elif a == "style":
+            return noter_style(d.get("texte") or texte)
         elif a == "fait":
             return _fait(ids)
         elif a == "chercher":
@@ -309,6 +316,32 @@ def details(i):
                     boutons if o["statut"] in ("a_valider", "repetee") else None)
     if o["lettre"]:
         messagerie.fichier(chemin_lettre(i), "Lettre de motivation (PDF)")
+    if o["statut"] in ("a_valider", "repetee"):
+        messagerie.dire("Pas parfaite ? Dis-moi ce qui ne va pas (« trop longue », « parle plus de mon mémoire »…), "
+                        "je retiens pour toutes les prochaines lettres.")
+
+
+def reinitialiser():
+    """Remise à zéro complète (après confirmation) : données, CV, profil, objectif, mémoire. Les réglages (.env) restent."""
+    import shutil
+    with db.tx() as c:
+        for table in ("offres", "evenements", "emails_recus", "rdv", "conversation", "carnet", "souvenirs", "kv"):
+            c.execute(f"DELETE FROM {table}")
+    for f in (config.chemin_cv(), config.PROFIL_DIR / "profil.md", config.PROFIL_DIR / "style.md", config.OBJECTIF):
+        f.unlink(missing_ok=True)
+    for d in ("lettres", "rapports", "fiches", "essais", "sortie", "boite_simulee"):
+        shutil.rmtree(config.DONNEES / d, ignore_errors=True)
+    db.journal("concierge", "remise à zéro complète")
+    db.kv_set("bienvenue_envoyee", True)
+    messagerie.dire("C'est fait : tout est effacé.")
+    coach.bienvenue()
+
+
+def noter_style(remarque: str):
+    """Tes remarques de style vont dans la mémoire durable : elles s'appliquent à TOUTES les lettres suivantes."""
+    from .. import memoire
+    memoire.retenir(remarque, "style")
+    messagerie.dire("Noté : toutes les prochaines lettres en tiendront compte.")
 
 
 def regler_budget(euros: float):
@@ -379,7 +412,8 @@ def _banc():
     texte = f.read_text(encoding="utf-8")
     note = re.search(r"Note moyenne du Juge : ([\d.]+)/10\** · coût : ([\d.]+) €", texte)
     messagerie.dire(f"Test terminé : note moyenne {note.group(1)}/10, coût {note.group(2)} €. "
-                    "Le rapport complet (les 5 lettres) est dans le PDF ci-dessous.\n"
+                    "Le rapport complet (les 5 lettres) est dans le PDF ci-dessous. Dis-moi ce qui te plaît ou pas, "
+                    "je retiens.\n"
                     "Ensuite : envoie-moi « essai » + le lien d'une vraie offre.")
     messagerie.fichier(f.with_suffix(".pdf") if f.with_suffix(".pdf").exists() else f, "Rapport du test (PDF)")
 

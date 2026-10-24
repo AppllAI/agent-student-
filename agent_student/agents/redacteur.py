@@ -3,7 +3,9 @@
   Rédacteur (modèle qualité) : écrit la lettre (en blocs : expéditeur, destinataire, objet, paragraphes…)
      + l'email d'accompagnement, nourri par
      – le profil (seule source de vérité),
-     – les liens « pourquoi toi » trouvés par l'Évaluateur, les faits trouvés par l'Enquêteur sur le site officiel.
+     – les liens « pourquoi toi » trouvés par l'Évaluateur, les faits trouvés par l'Enquêteur sur le site officiel,
+     – la mémoire : tes remarques de style et préférences (« plus court », « moins formel »…) et 2 lettres que tu as
+       validées toi-même (il apprend ton goût).
   Juge (Sonnet sans réflexion, regard neuf) : liste chaque fait de la lettre avec sa preuve citée du profil ;
      le CODE vérifie chaque citation et chaque chiffre/durée/niveau de langue → zéro invention qui passe.
   Jusqu'à 2 versions ; on garde la meilleure. Sous la note minimale → elle t'est montrée avec un ⚠️.
@@ -15,7 +17,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
-from .. import config, db, llm, messagerie, pdf
+from .. import config, db, llm, memoire, messagerie, pdf
 
 _LIGNES = {"type": "array", "items": {"type": "string"}}
 SCHEMA_LETTRE = {
@@ -63,6 +65,13 @@ def _offre(o) -> dict:
             "faits_employeur": infos.get("faits", []), "destinataire": infos.get("destinataire")}
 
 
+def lettres_aimees(n: int = 2) -> list[str]:
+    """Les dernières lettres que tu as validées toi-même : le Rédacteur s'aligne sur ton goût."""
+    return [r["lettre"][:1400] for r in db.q(
+        "SELECT lettre FROM offres WHERE lettre IS NOT NULL AND id IN "
+        "(SELECT offre_id FROM evenements WHERE agent='concierge' AND quoi='→ validee') ORDER BY id DESC LIMIT ?", n)]
+
+
 def ecrire_pdf(lettre: dict | str, chemin):
     """La lettre (en blocs, ou ancienne lettre en texte) en PDF mis en page, sur une page."""
     return pdf.lettre(lettre, chemin)
@@ -85,7 +94,8 @@ def ecrire_une(o) -> dict:
     systeme_r = llm.prompt("redacteur") + "\n\n## Profil (seule source de vérité)\n" + profil
     systeme_j = llm.prompt("verificateur") + "\n\n## Profil\n" + profil
     aujourdhui = f"{date.today().day} {MOIS[date.today().month - 1]} {date.today().year}"
-    demande = {"offre": _offre(o), "date_du_jour": aujourdhui}
+    demande = {"offre": _offre(o), "date_du_jour": aujourdhui, "notes_style": memoire.notes_style() or None,
+               "lettres_aimees": lettres_aimees()}
     meilleure = None
     for _ in range(2):          # 1 réécriture max : au-delà, la qualité ne monte plus et le coût double
         brut = llm.demander("redacteur", "qualite", systeme_r, json.dumps(demande, ensure_ascii=False),
