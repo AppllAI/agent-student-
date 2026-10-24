@@ -10,13 +10,13 @@ from pathlib import Path
 
 RACINE_PROJET = Path(__file__).resolve().parent.parent
 TMP = Path(tempfile.mkdtemp(prefix="agent_student_test_"))
-os.environ.update({"AGENT_STUDENT_RACINE": str(TMP), "SIMULATION": "1", "ANTHROPIC_API_KEY": "",
+os.environ.update({"AGENT_STUDENT_RACINE": str(TMP), "SIMULATION": "1", "ANTHROPIC_API_KEY": "", "TEST_OBLIGATOIRE": "0",
                    "EMAIL_ADRESSE": "moi@exemple.be"})
 sys.path.insert(0, str(RACINE_PROJET))
 
 from agent_student import config, db, messagerie, orchestrateur, outils  # noqa: E402
 from agent_student.agents import controle, envoyeur, essai, garde, relance, sources, trieur  # noqa: E402
-from agent_student.agents import concierge  # noqa: E402
+from agent_student.agents import coach, concierge  # noqa: E402
 from agent_student.agents.concierge import Entrant  # noqa: E402
 
 
@@ -52,6 +52,8 @@ class Circuit(unittest.TestCase):
         outils.telecharger = _hors_ligne
         sources._get_json = _hors_ligne                         # aucun vrai site pendant les tests
         sources._jobspy = lambda dom: []                        # ni Indeed ni Google
+        from agent_student.agents import connecteurs
+        connecteurs._get = connecteurs._post = _hors_ligne      # ni EURES, ni Forem, ni recruteurs
         orchestrateur.en_fond = lambda f, *a: f(*a)             # tout en synchrone
         orchestrateur.envoyer_bientot = orchestrateur._envoyer
         orchestrateur.declencher = lambda: None
@@ -96,11 +98,17 @@ class Circuit(unittest.TestCase):
         sortis = emails_sortis()
         self.assertEqual(len(sortis), 3)                                   # y compris l'offre « via leur site »
         import email
+        import email.policy
         for f in sortis:
-            m = email.message_from_bytes(f.read_bytes())
+            m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
             self.assertEqual(m["To"], "alex.test@exemple.be")             # l'adresse du CV, jamais l'employeur
-            self.assertIn("[TEST n°", str(email.header.make_header(email.header.decode_header(m["Subject"]))))
-            self.assertEqual(len([p for p in m.walk() if p.get_filename()]), 2)   # CV + lettre
+            self.assertIn("[TEST n°", m["Subject"])
+            joints = [p for p in m.walk() if p.get_filename()]
+            self.assertEqual(len(joints), 3)                              # CV + lettre + rapport de test
+            self.assertTrue(all(p.get_content_type() == "application/pdf" for p in joints))
+            self.assertTrue(all(p.get_content_disposition() == "attachment" for p in joints))
+            corps = m.get_body(("plain",)).get_content()
+            self.assertNotIn("Je vous prie d'agréer", corps)              # la lettre n'est PAS dans l'email
         orchestrateur.pipeline()                                           # 2e passage : aucun doublon
         self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM offres")["n"], 5)
 
@@ -173,7 +181,8 @@ class Circuit(unittest.TestCase):
         self.assertFalse(orchestrateur.en_pause())
         self.assertFalse(db.kv_get("pause"))
         concierge.recevoir(Entrant(texte="mes lettres sont trop longues"))
-        self.assertIn("180 mots", config.style_texte())
+        from agent_student import memoire
+        self.assertIn("180 mots", memoire.notes_style())                 # retenu pour toutes les lettres
         concierge.recevoir(Entrant(texte="mode validation"))
         self.assertEqual(config.regles_envoi()["mode"], "validation")
         self.assertNotIn("🧪", self.dernier())
@@ -181,7 +190,7 @@ class Circuit(unittest.TestCase):
     def test_7_test_en_langage_naturel(self):
         concierge.recevoir(Entrant(texte="j'aimerais d'abord essayer pour voir si ça marche"))
         self.assertTrue(any("Test terminé" in m for m in self.canal.messages[-3:]))
-        self.assertTrue(any(f.name == "banc_essai.md" for f in self.canal.fichiers))
+        self.assertTrue(any(f.name == "banc_essai.pdf" for f in self.canal.fichiers))
         concierge.recevoir(Entrant(texte="aide"))
         self.assertIn("teste-toi", self.dernier())
 
@@ -343,6 +352,285 @@ class Outils(unittest.TestCase):
         self.assertEqual(len(json.loads(essai.BANC.read_text(encoding="utf-8"))), 5)
 
 
+class Memoire(unittest.TestCase):
+    """Il se souvient de ce qu'on lui a dit il y a des jours, sans relire tout l'historique (coût minime)."""
+
+    def test_souvenir_d_il_y_a_5_jours(self):
+        from agent_student import memoire
+        with db.tx() as c:
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('moi', 'Le cabinet Verhaegen à Namur "
+                      "m''intéresse, je préfère les cabinets moyens', datetime('now', '-5 days'))")
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('agent', 'Noté !', datetime('now', '-5 days'))")
+        from datetime import date, timedelta
+        il_y_a_6 = (date.today() - timedelta(days=6)).isoformat()
+        trouves = memoire.chercher("verhaegen", il_y_a_6)
+        self.assertTrue(trouves and "Namur" in trouves[0])
+        self.assertTrue(memoire.chercher("", il_y_a_6, (date.today() - timedelta(days=4)).isoformat()))
+        self.assertEqual(memoire.chercher("verhaegen", date.today().isoformat()), [])   # hors période
+        # Le carnet résume chaque journée UNE fois et garde ce qui reste vrai
+        self.assertGreaterEqual(memoire.mettre_a_jour_carnet(), 1)
+        avant = db.q1("SELECT COUNT(*) AS n FROM carnet")["n"]
+        memoire.mettre_a_jour_carnet()
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM carnet")["n"], avant)        # pas payé deux fois
+        self.assertIn("cabinets de taille moyenne", memoire.contexte())
+        self.assertIn("Carnet de bord", memoire.contexte())
+
+    def test_retenir_et_oublier(self):
+        from agent_student import memoire
+        self.assertTrue(memoire.retenir("Ne plus postuler chez Nordlex.", "decision"))
+        self.assertFalse(memoire.retenir("ne plus postuler chez nordlex.", "decision"))  # pas de doublon
+        self.assertIn("Nordlex", memoire.contexte())
+        self.assertEqual(memoire.oublier("nordlex"), 1)
+        self.assertNotIn("Nordlex", memoire.contexte())
+
+    def test_manager_se_souvient(self):
+        from agent_student.agents import manager
+        with db.tx() as c:
+            c.execute("INSERT INTO conversation (role, texte, le) VALUES ('moi', 'Pense au cabinet Lambrechts', "
+                      "datetime('now', '-9 days'))")
+        self.assertIn("Lambrechts", manager.executer("se_souvenir", {"mots": "Lambrechts"}))
+        self.assertIn("mémoire", manager._systeme())
+
+
+class PhaseDeTest(unittest.TestCase):
+    """Obligatoire : 2 tests notés sur 20, ≥ 15, puis l'accord de la personne avant tout envoi réel."""
+
+    def setUp(self):
+        os.environ["TEST_OBLIGATOIRE"] = "1"
+        db.kv_set("phase_test", None)
+        o = config.objectif()
+        o.setdefault("envoi", {})["mode"] = "repetition"
+        config.sauver_objectif(o)
+        self.canal = CanalTest()
+        messagerie.brancher(self.canal)
+        self.ids = []
+        with db.tx() as c:
+            for i in range(3):
+                self.ids.append(c.execute(
+                    "INSERT INTO offres (cle, url, titre, entreprise, statut, infos_cabinet, lettre, envoye_le) "
+                    "VALUES (?, ?, 'Juriste', ?, 'repetee', '{}', 'Lettre', datetime('now'))",
+                    (f"pt{i}{self._testMethodName}", f"https://x.be/pt{i}", f"Cabinet PT{i}")).lastrowid)
+        orchestrateur.en_fond = lambda f, *a: None              # pas de réécriture réelle pendant ce test
+
+    def tearDown(self):
+        os.environ["TEST_OBLIGATOIRE"] = "0"
+        orchestrateur.en_fond = lambda f, *a: f(*a)
+
+    def test_parcours_complet(self):
+        from agent_student import memoire
+        from agent_student.agents import phase_test
+        concierge.recevoir(Entrant(texte="mode auto"))
+        self.assertIn("Pas encore", self.canal.messages[-1])               # rien de réel avant le test
+        for oid in self.ids:
+            self.assertTrue(phase_test.peut_envoyer_test())
+            phase_test.test_envoye(oid)
+        self.assertFalse(phase_test.peut_envoyer_test())                    # on attend sa note
+        self.assertIn("note sur 20", self.canal.messages[-1])
+        concierge.recevoir(Entrant(texte="note 12 : trop formel, j'aime l'accroche"))
+        e = phase_test.etat()
+        self.assertEqual((e["tour"], e["statut"], e["ids"]), (2, "en_cours", []))
+        self.assertIn("trop formel", memoire.notes_style())                 # ses remarques guident les lettres
+        self.assertEqual({db.q1("SELECT statut FROM offres WHERE id=?", i)["statut"] for i in self.ids}, {"qualifiee"})
+        for oid in self.ids:                                                # test n°2 envoyé
+            phase_test.test_envoye(oid)
+        concierge.recevoir(Entrant(texte="note 16/20 parfait"))
+        self.assertEqual(phase_test.etat()["statut"], "attente_accord")
+        self.assertEqual(config.regles_envoi()["mode"], "repetition")       # toujours rien sans son accord
+        concierge.recevoir(Entrant(texte="autoriser envoi"))
+        self.assertFalse(phase_test.actif())
+        self.assertEqual(config.regles_envoi()["mode"], "auto")
+        o = config.objectif()
+        o["envoi"]["mode"] = "repetition"
+        config.sauver_objectif(o)
+
+    def test_une_bonne_note_au_premier_test_ne_suffit_pas(self):
+        from agent_student.agents import phase_test
+        for oid in self.ids:
+            phase_test.test_envoye(oid)
+        phase_test.noter(18, "super")
+        self.assertEqual(phase_test.etat()["tour"], 2)                      # au moins 2 tests
+        self.assertTrue(phase_test.actif())
+
+
+class CanalApp(unittest.TestCase):
+    def test_aller_retour(self):
+        import threading
+        import time as t
+        from agent_student.canaux.app import App, ouvrir
+        canal = App()
+        canal.envoyer("Bonjour", [[("✅ Envoyer", "ok 1")]])
+        canal.demander_note("Donne-moi une note sur 20")
+        canal.envoyer_fichier(TMP / "x.pdf", "Lettre")
+        c = ouvrir(config.RACINE)
+        rows = c.execute("SELECT genre, texte, boutons FROM sortie ORDER BY id").fetchall()
+        self.assertEqual([r["genre"] for r in rows], ["texte", "notation", "fichier"])
+        self.assertIn('"commande": "ok 1"', rows[0]["boutons"])
+        recus = []
+        threading.Thread(target=canal.ecouter, args=(recus.append,), daemon=True).start()
+        c.execute("INSERT INTO entree (texte) VALUES ('salut')")
+        c.commit()
+        for _ in range(30):
+            if recus:
+                break
+            t.sleep(0.1)
+        self.assertEqual(recus[0].texte, "salut")
+
+    def test_mode_econome_s_arrete_seul(self):
+        import threading
+        from agent_student.canaux.app import App
+        os.environ["QUITTER_APRES_MIN"] = "0.01"            # 0,6 s sans message → l'agent rend la main
+        try:
+            t = threading.Thread(target=App().ecouter, args=(lambda m: None,), daemon=True)
+            t.start()
+            t.join(5)
+            self.assertFalse(t.is_alive())
+        finally:
+            del os.environ["QUITTER_APRES_MIN"]
+
+    def test_tournee(self):
+        from agent_student import orchestrateur
+        orchestrateur.tournee()                              # une tournée complète, sans planter
+        self.assertTrue(db.kv_get("derniere_recherche_web"))
+
+
+class Connecteurs(unittest.TestCase):
+    """Les sources communes à tous les agents, lues hors ligne avec des réponses enregistrées."""
+    DOM = {"mots_cles_recherche": ["juriste Bruxelles"], "postes_vises": ["juriste"], "villes": ["Bruxelles"]}
+
+    def setUp(self):
+        from agent_student.agents import connecteurs
+        self.c = connecteurs
+        self.anciens = (connecteurs._get, connecteurs._post)
+
+    def tearDown(self):
+        self.c._get, self.c._post = self.anciens
+
+    @staticmethod
+    def reponse(donnees=None, contenu=b""):
+        return type("R", (), {"json": lambda self: donnees, "content": contenu})()
+
+    def test_eures(self):
+        import time as t
+        recent = int(t.time() * 1000) - 86400000
+        vieux = recent - 40 * 86400000
+        envoye = {}
+
+        def faux(url, corps):
+            envoye.update(corps)
+            return self.reponse({"jvs": [
+                {"id": "AB1", "title": "Jurist", "creationDate": recent, "employer": {"name": "Cabinet Nord"},
+                 "translations": {"nl": {"title": "Jurist vastgoed", "description": "<p>Dossiers</p>"}}},
+                {"id": "AB2", "title": "Orderpicker", "creationDate": recent, "translations": {}},     # hors sujet
+                {"id": "AB3", "title": "Juriste", "creationDate": vieux, "translations": {}}]})        # trop vieille
+        self.c._post = faux
+        o = self.c.eures(self.DOM)
+        self.assertEqual([x["titre"] for x in o], ["Jurist vastgoed"])
+        self.assertEqual(envoye["locationCodes"], ["be1"])                    # Bruxelles → région be1
+        self.assertEqual(envoye["keywords"][0]["keyword"], "juriste")         # la ville est filtrée à part
+        self.assertIn("jv-details/AB1", o[0]["url"])
+
+    def test_forem(self):
+        from datetime import date
+        self.c._get = lambda url, **k: self.reponse({"results": [{
+            "numerooffreforem": "1", "titreoffre": "Juriste (H/F/X)", "nomemployeur": "Ville de Namur",
+            "lieuxtravaillocalite": "Namur", "typecontrat": "CDI", "langues": ["Français"], "source": "Jobat",
+            "datedebutdiffusion": date.today().isoformat(), "url": "https://www.leforem.be/offre/1"}]})
+        o = self.c.forem(self.DOM)
+        self.assertEqual((o[0]["entreprise"], o[0]["source"]), ("Ville de Namur", "forem"))
+        self.assertIn("Jobat", o[0]["description"])
+
+    def test_recruteurs_decouverts_puis_surveilles(self):
+        from datetime import date
+        trouves = self.c.detecter_ats('<a href="https://boards.greenhouse.io/lumenlaw">Jobs</a> '
+                                      "https://jobs.lever.co/nordlex/abc https://acme.recruitee.com/o/juriste")
+        self.assertEqual(trouves, {("greenhouse", "lumenlaw"), ("lever", "nordlex"), ("recruitee", "acme")})
+        db.kv_set("tableaux_ats", None)
+        self.c.noter_ats({("greenhouse", "lumenlaw")}, "test")
+        self.c._get = lambda url, **k: self.reponse({"jobs": [
+            {"title": "Juriste corporate", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/1",
+             "location": {"name": "Brussels, Belgium"}, "first_published": date.today().isoformat(), "content": "&lt;p&gt;Droit&lt;/p&gt;"},
+            {"title": "Juriste", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/2",
+             "location": {"name": "New York"}, "first_published": date.today().isoformat()},               # hors Belgique
+            {"title": "Office manager", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/3",
+             "location": {"name": "Brussels"}, "first_published": date.today().isoformat()}]})              # hors sujet
+        o = self.c.ats(self.DOM)
+        self.assertEqual([x["url"] for x in o], ["https://boards.greenhouse.io/lumenlaw/jobs/1"])
+        self.assertEqual(o[0]["description"], "Droit")
+
+    def test_alerte_linkedin(self):
+        texte = ("Vos alertes emploi\n\nJuriste en droit des sociétés\nCabinet Delta\nBruxelles, Belgique\n"
+                 "Voir l'offre : https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=x\n\n"
+                 "Stagiaire avocat\nLumen Law\nNamur\nhttps://www.linkedin.com/comm/jobs/view/4012345679/\n")
+        o = self.c.offres_d_une_alerte("LinkedIn <jobalerts-noreply@linkedin.com>", "Nouvelles offres", texte)
+        self.assertEqual([(x["titre"], x["entreprise"], x["ville"]) for x in o],
+                         [("Juriste en droit des sociétés", "Cabinet Delta", "Bruxelles, Belgique"),
+                          ("Stagiaire avocat", "Lumen Law", "Namur")])
+        self.assertEqual(o[0]["url"], "https://www.linkedin.com/jobs/view/4012345678")
+        self.assertTrue(self.c.lecture_interdite(o[0]["url"]))            # jamais ouvert automatiquement
+
+    def test_alerte_transferee_entre_dans_le_circuit(self):
+        m = EmailMessage()
+        m["From"], m["Subject"], m["Message-ID"] = "alex.test@exemple.be", "Fwd: alertes LinkedIn", "<alerte1@x>"
+        m.set_content("Juriste immobilier\nCabinet Alerte Un\nBruxelles\nhttps://www.linkedin.com/jobs/view/111/\n"
+                      "Juriste fiscal\nCabinet Alerte Deux\nLiège\nhttps://www.linkedin.com/jobs/view/222/\n")
+        (config.DONNEES / "boite_simulee").mkdir(parents=True, exist_ok=True)
+        (config.DONNEES / "boite_simulee" / "alerte.eml").write_bytes(bytes(m))
+        trieur.relever()
+        self.assertEqual(offre("Cabinet Alerte Un")["source"], "alerte")
+        self.assertEqual(db.q1("SELECT categorie FROM emails_recus WHERE uid='<alerte1@x>'")["categorie"], "alerte")
+
+
+class SitesEtEmails(unittest.TestCase):
+    """Les bonnes infos sur les bons sites, et aucune adresse email devinée."""
+
+    def test_domaine_officiel(self):
+        self.assertEqual(outils.domaine_officiel("https://www.student.be/fr/x", "jobs@lumen-shop.be"), "lumen-shop.be")
+        self.assertEqual(outils.domaine_officiel("https://www.delta-store.be/jobs/vendeur", None), "delta-store.be")
+        self.assertEqual(outils.domaine_officiel("https://fr.studentjob.be/offre/1", "alex@gmail.com"), "")
+
+    def test_email_verifie_par_le_code(self):
+        pages = {"https://boutique-x.be": "<p>Boutique X</p> <a href='mailto:recrutement@boutique-x.be'>",
+                 "https://boutique-x.be/contact": "info@boutique-x.be"}
+        ancien = outils.telecharger
+        outils.telecharger = lambda u, timeout=20: pages.get(u.rstrip("/"), "") or _hors_ligne()
+        try:
+            # lue sur le site → gardée ; devinée → remplacée par celle que le site publie vraiment
+            self.assertEqual(outils.verifier_email("recrutement@boutique-x.be", "Boutique X"), "recrutement@boutique-x.be")
+            self.assertEqual(outils.verifier_email("jobs@boutique-x.be", "Boutique X"), "recrutement@boutique-x.be")
+            self.assertIsNone(outils.verifier_email("jobs@gmail.com", "Boutique X"))
+            self.assertIsNone(outils.verifier_email("rh@inconnu-sans-site.be", "Boutique X"))
+        finally:
+            outils.telecharger = ancien
+        # site officiel connu mais illisible : le domaine officiel fait foi
+        self.assertEqual(outils.verifier_email("stage@horizon.be", "Horizon", "horizon.be"), "stage@horizon.be")
+
+    def test_recherche_web_ciblee(self):
+        from agent_student import llm
+        o = llm._recherche_web("claude-haiku-5-5", 2, None, ["student.be"])
+        self.assertEqual(o["type"], "web_search_20250305")
+        self.assertIn("student.be", o["blocked_domains"])
+        o = llm._recherche_web("claude-sonnet-5-5", 2, ["boutique.be"], ["student.be"])
+        self.assertEqual((o["type"], o["allowed_domains"]), ("web_search_20260209", ["boutique.be"]))
+        self.assertNotIn("blocked_domains", o)                      # jamais les deux à la fois
+        self.assertFalse(llm._forcer("claude-sonnet-5-5"))
+        self.assertTrue(llm._forcer("claude-haiku-5-5"))
+
+    def test_lettre_toujours_en_pdf(self):
+        from agent_student import pdf
+        from agent_student.agents.redacteur import chemin_lettre
+        with db.tx() as c:          # lettre d'une ancienne version : texte seulement, pas de PDF
+            oid = c.execute("INSERT INTO offres (cle, url, titre, lettre, statut) VALUES "
+                            "('ancienne', 'https://x.be/1', 'Poste', 'Madame, Monsieur,\n\nTexte.', 'a_valider')").lastrowid
+        f = chemin_lettre(oid)
+        self.assertEqual(f.suffix, ".pdf")
+        self.assertTrue(f.read_bytes().startswith(b"%PDF"))
+        l = {"expediteur": ["Alex Test"], "lieu_date": "Bruxelles, le 1er mars 2027", "objet_lettre": "Candidature",
+             "appel": "Madame, Monsieur,", "paragraphes": ["Un.", "Deux."], "politesse": "Salutations.",
+             "signature": "Alex Test"}
+        self.assertIn("Objet : Candidature\n\nMadame, Monsieur,\n\nUn.\n\nDeux.", pdf.texte_lettre(l))
+        self.assertNotIn("🎯", pdf.propre("Fiche 🎯 **gras**"))
+
+
 class ZRobustesse(unittest.TestCase):
     """Ce qui fait qu'un agent « ne fait rien » doit être dit clairement, une seule fois."""
 
@@ -378,6 +666,17 @@ class ZRobustesse(unittest.TestCase):
         db.kv_set("pause", True)
         self.assertIn("PAUSE", diagnostic.rapport(envoyer=False))
         db.kv_set("pause", False)
+
+    def test_tout_effacer(self):
+        from agent_student import memoire
+        memoire.retenir("Souvenir à effacer", "fait")
+        avant = db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"]
+        concierge.recevoir(Entrant(texte="tout effacer"))
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"], avant)   # rien sans confirmation
+        concierge.recevoir(Entrant(texte="tout effacer confirme"))
+        self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM souvenirs")["n"], 0)
+        self.assertFalse(config.chemin_cv().exists())
+        self.assertFalse(coach.onboarding_fini())
 
     def test_rappel_via_site_une_fois_par_jour(self):
         from agent_student.agents import rapporteur

@@ -8,5 +8,10 @@ enseigne, organisateur d'événements, agence…) :
    leur concept, le quartier) ;
 3. le prénom/nom du responsable à qui écrire, seulement s'il est publié comme contact recrutement.
 
-Une seule recherche : va droit au site officiel de l'employeur. Ne rapporte que ce que tu as lu sur une source sérieuse.
-Rien trouvé → listes vides et null.
+Deux cas :
+- `pages_du_site` est fourni : c'est le texte des pages du site OFFICIEL. Tire tes faits UNIQUEMENT de ce texte.
+  `email_recrutement` : une adresse de `emails_lus_sur_le_site` (de préférence jobs@, rh@…), sinon null.
+- Sinon : 1 recherche (2 au maximum) qui va droit au site officiel (`site_officiel` s'il est donné).
+  Les sites d'emploi et réseaux sociaux ne comptent pas comme source.
+
+Ne rapporte que ce que tu as lu. Rien trouvé → listes vides et null. N'invente JAMAIS une adresse email.

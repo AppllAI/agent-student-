@@ -1,12 +1,15 @@
 """Agents Rédacteur & Juge (boucle « écrire → noter → corriger », motif evaluator-optimizer d'Anthropic).
 
-  Rédacteur (modèle qualité) : écrit la lettre + l'email, nourri par
+  Rédacteur (modèle qualité) : écrit la lettre (en blocs : expéditeur, destinataire, objet, paragraphes…)
+     + l'email d'accompagnement, nourri par
      – le profil (seule source de vérité),
-     – les liens « pourquoi toi » trouvés par l'Évaluateur, les faits trouvés par l'Enquêteur,
-     – tes notes de style (« plus court », « moins formel »…) et 2 lettres que tu as validées (il apprend ton goût).
+     – les liens « pourquoi toi » trouvés par l'Évaluateur, les faits trouvés par l'Enquêteur sur le site officiel,
+     – la mémoire : tes remarques de style et préférences (« plus court », « moins formel »…) et 2 lettres que tu as
+       validées toi-même (il apprend ton goût).
   Juge (Sonnet sans réflexion, regard neuf) : liste chaque fait de la lettre avec sa preuve citée du profil ;
      le CODE vérifie chaque citation et chaque chiffre/durée/niveau de langue → zéro invention qui passe.
-  Jusqu'à 3 versions ; on garde la meilleure. Sous la note minimale → elle t'est montrée avec un ⚠️."""
+  Jusqu'à 2 versions ; on garde la meilleure. Sous la note minimale → elle t'est montrée avec un ⚠️.
+  La lettre devient un PDF mis en page (agent_student/pdf.py) : c'est lui qui part en pièce jointe."""
 from __future__ import annotations
 
 import json
@@ -14,12 +17,27 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
-from .. import config, db, llm, messagerie
+from .. import config, db, llm, memoire, messagerie, pdf
 
+_LIGNES = {"type": "array", "items": {"type": "string"}}
 SCHEMA_LETTRE = {
     "type": "object",
-    "properties": {"lettre": {"type": "string"}, "objet": {"type": "string"}, "email": {"type": "string"}},
-    "required": ["lettre", "objet", "email"],
+    "properties": {
+        "expediteur": {**_LIGNES, "description": "Ses coordonnées, une par ligne, UNIQUEMENT celles du profil : "
+                                                 "Prénom Nom, adresse ou ville, téléphone, email"},
+        "destinataire": {**_LIGNES, "description": "Employeur, puis la personne si elle est connue, puis l'adresse "
+                                                   "seulement si elle figure dans l'offre ou les faits fournis"},
+        "lieu_date": {"type": "string", "description": "« Bruxelles, le 24 octobre 2026 » (sa ville, date du jour)"},
+        "objet_lettre": {"type": "string", "description": "Objet de la lettre, sans le mot « Objet : »"},
+        "appel": {"type": "string", "description": "« Madame, Monsieur, » ou « Madame X, »"},
+        "paragraphes": {**_LIGNES, "description": "Le corps de la lettre : 3 petits paragraphes"},
+        "politesse": {"type": "string", "description": "La formule de politesse finale"},
+        "signature": {"type": "string", "description": "Prénom Nom"},
+        "objet": {"type": "string", "description": "Objet de l'EMAIL"},
+        "email": {"type": "string", "description": "L'email de candidature (lu en premier), CV et lettre en PDF joints"},
+    },
+    "required": ["expediteur", "lieu_date", "objet_lettre", "appel", "paragraphes", "politesse", "signature",
+                 "objet", "email"],
 }
 SCHEMA_JUGE = {
     "type": "object",
@@ -54,64 +72,39 @@ def lettres_aimees(n: int = 2) -> list[str]:
         "(SELECT offre_id FROM evenements WHERE agent='concierge' AND quoi='→ validee') ORDER BY id DESC LIMIT ?", n)]
 
 
-def ecrire_pdf(texte: str, chemin):
-    """Lettre en PDF propre : A4, marges 25 mm, paragraphes justifiés et aérés, police lisible."""
-    try:
-        from fpdf import FPDF
-    except ImportError:  # sans fpdf2 on garde un .txt lisible
-        chemin.with_suffix(".txt").write_text(texte, encoding="utf-8")
-        return chemin.with_suffix(".txt")
-    pdf = FPDF(format="A4")
-    pdf.set_margins(25, 22, 25)
-    pdf.set_auto_page_break(True, margin=20)
-    pdf.add_page()
-    police = "Helvetica"
-    for f in ("C:/Windows/Fonts/arial.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf",
-              "/Library/Fonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
-        try:
-            pdf.add_font("Texte", "", f)
-            police = "Texte"
-            break
-        except Exception:
-            continue
-    pdf.set_font(police, size=10.5)
-    if police == "Helvetica":
-        texte = texte.encode("latin-1", "replace").decode("latin-1")
-    blocs = [b.strip("\n") for b in texte.replace("\r", "").split("\n\n")]
-    for b in blocs:
-        if not b.strip():
-            continue
-        lignes = b.split("\n")
-        court = all(len(l) < 60 for l in lignes)          # coordonnées, date, signature : alignés à gauche
-        puces = any(l.lstrip().startswith(("- ", "• ", "– ")) for l in lignes)
-        if puces:
-            for l in lignes:
-                pdf.multi_cell(0, 5.4, l.strip(), align="J", new_x="LMARGIN", new_y="NEXT")
-        elif court:
-            for l in lignes:
-                pdf.cell(0, 5.2, l.strip(), new_x="LMARGIN", new_y="NEXT")
-        else:
-            pdf.multi_cell(0, 5.4, " ".join(l.strip() for l in lignes), align="J", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(3.2)
-    pdf.output(str(chemin))
-    return chemin
+def ecrire_pdf(lettre: dict | str, chemin):
+    """La lettre (en blocs, ou ancienne lettre en texte) en PDF mis en page, sur une page."""
+    return pdf.lettre(lettre, chemin)
+
+
+def _structure(r: dict) -> dict:
+    cles = ("expediteur", "destinataire", "lieu_date", "objet_lettre", "appel", "paragraphes", "politesse", "signature")
+    l = {k: r.get(k) for k in cles}
+    for k in ("expediteur", "destinataire", "paragraphes"):
+        v = l.get(k) or []
+        l[k] = [x.strip() for x in (v.split("\n") if isinstance(v, str) else v) if x and x.strip()]
+    return l
 
 
 def ecrire_une(o) -> dict:
-    """Écrit, fait juger, corrige. Renvoie la meilleure version {lettre, objet, email, note, corrections}."""
+    """Écrit, fait juger, corrige. Renvoie la meilleure version
+    {lettre (texte), structure (blocs pour le PDF), objet, email, note, corrections}."""
     regles = config.regles_envoi()
     profil = config.profil_texte()
     systeme_r = llm.prompt("redacteur") + "\n\n## Profil (seule source de vérité)\n" + profil
     systeme_j = llm.prompt("verificateur") + "\n\n## Profil\n" + profil
     aujourdhui = f"{date.today().day} {MOIS[date.today().month - 1]} {date.today().year}"
-    demande = {"offre": _offre(o), "date_du_jour": aujourdhui, "notes_style": config.style_texte() or None,
+    demande = {"offre": _offre(o), "date_du_jour": aujourdhui, "notes_style": memoire.notes_style() or None,
                "lettres_aimees": lettres_aimees()}
     meilleure = None
     for _ in range(2):          # 1 réécriture max : au-delà, la qualité ne monte plus et le coût double
-        r = llm.demander("redacteur", "qualite", systeme_r, json.dumps(demande, ensure_ascii=False),
-                         SCHEMA_LETTRE, max_tokens=4000, reflexion=False)
-        if len((r.get("lettre") or "").split()) < 90 or not r.get("email") or not r.get("objet"):
+        brut = llm.demander("redacteur", "qualite", systeme_r, json.dumps(demande, ensure_ascii=False),
+                            SCHEMA_LETTRE, max_tokens=4000, reflexion=False)
+        structure = _structure(brut)
+        corps = " ".join(structure["paragraphes"])
+        if len(corps.split()) < 90 or not brut.get("email") or not brut.get("objet"):
             raise ValueError("lettre vide ou incomplète renvoyée par l'IA")
+        r = {"lettre": pdf.texte_lettre(structure), "objet": brut["objet"].strip(), "email": brut["email"].strip()}
         # Juge = Sonnet sans réflexion : testé contre la vraie API, il attrape TOUTES les inventions glissées
         # (Haiku en ratait) et ne sous-note pas les bonnes lettres → moins de réécritures inutiles.
         j = llm.demander("juge", "qualite", systeme_j,
@@ -132,11 +125,11 @@ def ecrire_une(o) -> dict:
             note = min(note, 4)
             j["corrections"] = alertes[:4] + list(j.get("corrections") or [])[:1]
         if meilleure is None or note > meilleure["note"]:
-            meilleure = {**r, "note": note, "corrections": j.get("corrections") or []}
+            meilleure = {**r, "structure": structure, "note": note, "corrections": j.get("corrections") or []}
         if note >= regles["note_lettre_minimum"]:
             break
         demande["corrections_a_appliquer"] = j.get("corrections") or ["Rends la lettre plus spécifique à cet employeur."]
-        demande["version_precedente"] = r
+        demande["version_precedente"] = brut
     return meilleure
 
 
@@ -169,23 +162,30 @@ def rediger(limite: int = 12):
                 messagerie.signaler(f"⚠️ Je n'arrive pas à écrire la lettre pour *{o['entreprise'] or o['titre']}* "
                                 f"({type(e).__name__}). Je l'ai mise de côté.")
             return
-        ecrire_pdf(v["lettre"], dossier / f"lettre_{o['id']}.pdf")
+        ecrire_pdf(v["structure"], dossier / f"lettre_{o['id']}.pdf")
         bonne = v["note"] >= regles["note_lettre_minimum"]
         db.changer_statut(o["id"], "redigee", "redacteur",
                           None if bonne else "à relire : " + "; ".join(v["corrections"])[:300],
-                          lettre=v["lettre"], objet_mail=v["objet"], corps_mail=v["email"], note_lettre=v["note"])
+                          lettre=v["lettre"], objet_mail=v["objet"], corps_mail=v["email"], note_lettre=v["note"],
+                          lettre_json=json.dumps(v["structure"], ensure_ascii=False))
         # Mode test : tout part tout seul vers ta boîte (même les lettres moyennes, avec leur note) pour que tu juges
         auto = (regles["mode"] == "auto" and bonne) or regles["mode"] == "repetition"
         db.changer_statut(o["id"], "validee" if auto else "a_valider", "redacteur")
 
-    # 3 lettres en même temps : 3× plus rapide, même coût
-    with ThreadPoolExecutor(3) as ex:
+    # 4 lettres en même temps : 4× plus rapide, même coût
+    with ThreadPoolExecutor(4) as ex:
         list(ex.map(traiter, offres))
 
 
 def chemin_lettre(offre_id: int):
-    base = config.DONNEES / "lettres" / f"lettre_{offre_id}"
-    return base.with_suffix(".pdf") if base.with_suffix(".pdf").exists() else base.with_suffix(".txt")
+    """Le PDF de la lettre. Absent (lettre écrite par une ancienne version, en .txt) : il est refait à partir
+    de la lettre enregistrée — une pièce jointe est TOUJOURS un PDF."""
+    chemin = config.DONNEES / "lettres" / f"lettre_{offre_id}.pdf"
+    if not chemin.exists():
+        o = db.q1("SELECT lettre, lettre_json FROM offres WHERE id=?", offre_id)
+        if o and (o["lettre_json"] or o["lettre"]):
+            ecrire_pdf(json.loads(o["lettre_json"]) if o["lettre_json"] else o["lettre"], chemin)
+    return chemin
 
 
 def carte(o) -> tuple[str, list]:

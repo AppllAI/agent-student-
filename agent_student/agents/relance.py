@@ -7,12 +7,14 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
 from .. import config, db
-from .envoyeur import expedier, heure_ouvrable
+from .envoyeur import _joindre_pdf, _nom, expedier, expediteur, heure_ouvrable
+from .redacteur import chemin_lettre
 
 MODELE = """Madame, Monsieur,
 
 Je me permets de revenir vers vous concernant ma candidature au poste de {poste}, envoyée le {date}.
 Ce poste m'intéresse toujours vivement et je reste à votre disposition pour un entretien à votre convenance.
+Pour votre facilité, je joins à nouveau mon CV et ma lettre de motivation.
 
 Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.
 
@@ -35,7 +37,7 @@ def relancer():
         if age < timedelta(days=n) or not o["email_contact"]:
             continue
         m = EmailMessage()
-        m["From"] = config.env("EMAIL_ADRESSE", "moi@exemple.be")
+        expediteur(m)
         m["To"] = o["email_contact"]
         m["Subject"] = f"Re: {o['objet_mail']}"
         m["Date"] = formatdate(localtime=True)
@@ -44,7 +46,9 @@ def relancer():
             m["In-Reply-To"] = o["message_id"]
             m["References"] = o["message_id"]
         signature = config.env("NOM_CANDIDAT", "") + (f"\n{config.env('TELEPHONE')}" if config.env("TELEPHONE") else "")
-        m.set_content(MODELE.format(poste=o["titre"], date=o["envoye_le"][:10], signature=signature.strip()))
+        m.set_content(MODELE.format(poste=o["titre"], date=f"{datetime.fromisoformat(o['envoye_le']):%d/%m/%Y}", signature=signature.strip()))
+        _joindre_pdf(m, config.chemin_cv(), _nom("CV"))                 # le recruteur a tout sous la main
+        _joindre_pdf(m, chemin_lettre(o["id"]), _nom("Lettre_de_motivation"))
         try:
             expedier(m)
             db.changer_statut(o["id"], "relancee", "relance")

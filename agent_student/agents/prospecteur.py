@@ -2,7 +2,8 @@
 
 Beaucoup de jobs étudiants ne sont jamais publiés (magasins, restos, événements). Chaque matin, il trouve N employeurs qui
 collent à ton objectif, relève leur email de recrutement sur leur site officiel, et les fait entrer
-dans le même circuit que les offres (Garde → Évaluateur → Rédacteur → Juge → ton ok)."""
+dans le même circuit que les offres (Garde → Évaluateur → Rédacteur → Juge → ton ok).
+Chaque adresse est vérifiée par le code (lue sur le site officiel, ou de son domaine) : aucune adresse inventée."""
 from __future__ import annotations
 
 import json
@@ -36,13 +37,22 @@ def prospecter() -> int:
                                                               "secteurs_exclus", "villes", "langues")},
                           "deja_contactes": deja[-150:], "nombre": n}, ensure_ascii=False)
     r = llm.demander("prospecteur", "rapide", llm.prompt("prospecteur"), contenu, SCHEMA,
-                     web=True, recherches_max=4, max_tokens=3500, priorite="fond")
+                     web=True, recherches_max=5, max_tokens=4000, priorite="fond",
+                     sites_bloques=list(outils.SITES_EMPLOI_DOMAINES))
     db.kv_set("prospection_du", date.today().isoformat())
     poste = (dom.get("postes_vises") or ["job étudiant"])[0]
+    employeurs = [e for e in r.get("employeurs", []) if e.get("nom")][:n]
+
+    def verifiee(e):
+        site = outils.domaine_officiel(e.get("site"))
+        return outils.verifier_email(e.get("email_recrutement"), e["nom"], site)
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(5) as ex:           # les sites sont lus en parallèle (gratuit, quelques secondes)
+        emails = list(ex.map(verifiee, employeurs))
     ajoutes = 0
     with db.tx() as c:
-        for e in r.get("employeurs", [])[:n]:
-            email = (outils.emails_dans(e.get("email_recrutement") or "") or [None])[0]
+        for e, email in zip(employeurs, emails):
             if not email:            # sans email vérifié, pas de candidature spontanée
                 continue
             secteur = ", ".join(e.get("secteurs") or []) or None
@@ -57,5 +67,7 @@ def prospecter() -> int:
                  email, "email", json.dumps({"faits": e.get("faits", []), "destinataire": e.get("destinataire")},
                                             ensure_ascii=False), date.today().isoformat()))
             ajoutes += cur.rowcount
-    db.journal("prospecteur", f"{ajoutes} employeur(s) à contacter spontanément")
+    sans = [e["nom"] for e, email in zip(employeurs, emails) if not email]
+    db.journal("prospecteur", f"{ajoutes} employeur(s) à contacter spontanément"
+                              + (f" · sans adresse vérifiable, ignorés : {', '.join(sans)[:200]}" if sans else ""))
     return ajoutes

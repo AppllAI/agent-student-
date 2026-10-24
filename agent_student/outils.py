@@ -24,6 +24,11 @@ SITES_EMPLOI = ("lexgo.", "jobat.", "stepstone.", "indeed.", "legalworld.", "ref
                 "vdab.", "linkedin.", "glassdoor.", "monster.", "talent.com", "jobted.", "optioncarriere.", "jooble.",
                 "kapitalis.", "jobsinbrussels.", "ictjob.", "justifit.", "student.be", "studentjob.", "stujobs.",
                 "jobteaser.")   # les agences d'intérim (Randstad, Adecco…) restent permises : ce sont des recruteurs
+# Les mêmes, en noms de domaine (pour dire à la recherche web de NE PAS y perdre de recherches)
+SITES_EMPLOI_DOMAINES = ("lexgo.be", "jobat.be", "stepstone.be", "indeed.com", "legalworld.be", "references.be",
+                         "actiris.brussels", "leforem.be", "vdab.be", "linkedin.com", "glassdoor.com", "glassdoor.be",
+                         "monster.be", "talent.com", "jobted.be", "optioncarriere.be", "jooble.org", "ictjob.be",
+                         "jobsinbrussels.com", "student.be", "studentjob.be", "stujobs.be", "jobteaser.com")
 
 
 def sans_accents(s: str) -> str:
@@ -132,3 +137,108 @@ def telecharger(url: str, timeout: int = 20) -> str:
 def domaine_email(adresse: str | None) -> str:
     m = RE_EMAIL.search(adresse or "")
     return m.group(0).split("@")[1].lower() if m else ""
+
+
+# ---------- Site officiel de l'employeur : lu sans IA, et preuve des adresses email ----------
+WEBMAILS = ("gmail.", "googlemail.", "outlook.", "hotmail.", "live.", "msn.", "yahoo.", "icloud.", "me.com",
+            "skynet.be", "proximus.be", "telenet.be", "scarlet.be", "voo.be", "gmx.", "orange.", "protonmail.")
+_PAS_UN_EMPLOYEUR = SITES_EMPLOI + ("google.", "facebook.", "instagram.", "twitter.", "x.com", "youtube.",
+                                    "wikipedia.", "glassdoor.", "jooble.", "careerjet.", "jobrapido.", "trovit.")
+PAGES_UTILES = ("", "/contact", "/fr/contact", "/carrieres", "/fr/carrieres", "/careers", "/jobs", "/recrutement",
+                "/vacatures", "/nl/contact", "/a-propos", "/about")
+
+
+def domaine(url: str | None) -> str:
+    return urlparse(url if "://" in (url or "") else f"https://{url or ''}").netloc.lower().removeprefix("www.")
+
+
+def domaine_officiel(url: str | None = None, email: str | None = None) -> str:
+    """Le site de l'employeur quand on le connaît déjà : domaine de son email pro, ou lien vers SON site
+    (pas un site d'emploi, pas un webmail)."""
+    for d in (domaine_email(email), domaine(url) if (url or "").startswith("http") else ""):
+        if d and "." in d and not any(x in d for x in WEBMAILS + _PAS_UN_EMPLOYEUR):
+            return d
+    return ""
+
+
+def lire_site(dom: str, limite: int = 9000, delai: int = 8) -> tuple[str, list[str]]:
+    """Accueil + pages contact / carrières du site officiel, en parallèle, sans IA (gratuit, ~5 s).
+    Renvoie (texte utile, adresses email lues dans les pages)."""
+    if not dom:
+        return "", []
+    from concurrent.futures import ThreadPoolExecutor
+    from urllib.parse import unquote
+
+    def une(chemin):
+        try:
+            return telecharger(f"https://{dom}{chemin}", timeout=delai)
+        except Exception:
+            return ""
+
+    with ThreadPoolExecutor(6) as ex:
+        pages = list(ex.map(une, PAGES_UTILES))
+    textes, debuts, emails = [], set(), []
+    for chemin, page in zip(PAGES_UTILES, pages):
+        if not page:
+            continue
+        _signaler_ats(page, dom)
+        for e in emails_dans(unquote(html.unescape(page))):          # aussi dans l'en-tête / le pied de page
+            if e not in emails:
+                emails.append(e)
+        t = texte_html(page, 2500)
+        if len(t) > 80 and t[:200] not in debuts:                     # pages identiques (site en JavaScript)
+            debuts.add(t[:200])
+            textes.append(f"[{dom}{chemin or '/'}]\n{t}")
+    return "\n\n".join(textes)[:limite], emails
+
+
+def _signaler_ats(page: str, dom: str):
+    """Une page carrières hébergée par un logiciel de recrutement, repérée sur le site d'un employeur, est ensuite
+    surveillée gratuitement à chaque veille (voir agents/connecteurs.py)."""
+    try:
+        from .agents import connecteurs
+        trouves = connecteurs.detecter_ats(page)
+        if trouves:
+            connecteurs.noter_ats(trouves, f"site de {dom}")
+    except Exception:
+        pass
+
+
+def _meme_domaine(a: str, b: str) -> bool:
+    return bool(a and b) and (a == b or a.endswith("." + b) or b.endswith("." + a))
+
+
+def verifier_email(email: str | None, employeur: str | None, dom: str = "", lus: list[str] | tuple = ()) -> str | None:
+    """Une IA peut inventer « jobs@cabinet.be » : le CODE vérifie chaque adresse avant de s'en servir.
+      • lue telle quelle sur le site (`lus`, ou en allant lire le site de son domaine, gratuitement) → gardée ;
+      • sinon, l'adresse que ce site publie vraiment (jobs@, rh@… de préférence) la remplace ;
+      • du domaine officiel de l'employeur, ou d'un site qui porte son nom, sans autre adresse publiée → gardée ;
+      • sinon → None (mieux vaut postuler via le site qu'écrire dans le vide)."""
+    e = (emails_dans(email or "") or [None])[0]
+    if not e:
+        return None
+    lus = [x.lower() for x in lus]
+    if e in lus:
+        return e
+    d = e.split("@")[-1]
+    if any(x in d for x in WEBMAILS + _PAS_UN_EMPLOYEUR):
+        return None
+    officiel = _meme_domaine(d, dom)
+    if officiel and not lus:
+        texte, trouves = lire_site(d, limite=4000)
+    elif officiel:
+        texte, trouves = "", lus                  # le site officiel a déjà été lu
+    else:
+        texte, trouves = lire_site(d, limite=4000)
+    if e in trouves:
+        return e
+    siens = [x for x in trouves if _meme_domaine(x.split("@")[-1], d)]
+    recrutement = [x for x in siens if RE_EMAIL_RECRUTEMENT.match(x)]
+    if recrutement or siens:
+        return (recrutement or siens)[0]
+    jetons = [m for m in re.findall(r"[a-z0-9]{4,}", sans_accents(employeur or ""))
+              if m not in ("cabinet", "avocats", "avocat", "associes", "group", "groupe", "belgium", "advocaten",
+                           "magasin", "boutique", "restaurant", "brasserie", "store", "shop")]
+    if officiel or (texte and jetons and any(j in sans_accents(texte) for j in jetons)):
+        return e
+    return None

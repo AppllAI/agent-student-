@@ -42,11 +42,28 @@ def enrichir(limite: int = 40):
 
 def _enrichir_une(o: dict):
     """Lit la page de l'offre et complète ce qui manque (JSON-LD gratuit d'abord, IA rapide ensuite)."""
+    from . import connecteurs
     page = ""
-    if o["url"] and o["url"].startswith("http"):
+    if o.get("source") == "eures":
+        # EURES : la page est une application JavaScript, mais son API publique donne tout le détail
+        try:
+            for k, v in connecteurs.detail_eures(o["url"]).items():
+                if v and k in CLES and (not o.get(k) or k in ("description", "langue")):
+                    o[k] = v
+                elif v and k == "lien_candidature":
+                    o["description"] = f"{o.get('description') or ''}\nPour postuler : {v}".strip()
+        except Exception as e:
+            db.journal("extracteur", f"détail EURES indisponible ({type(e).__name__})", o["id"])
+    elif connecteurs.lecture_interdite(o["url"]):
+        pass        # LinkedIn, Jobat, StepStone : jamais lus automatiquement (CGU) — l'alerte suffit
+    elif o["url"] and o["url"].startswith("http"):
         try:
             page = outils.telecharger(o["url"])
         except Exception as e:
+            statut = getattr(getattr(e, "response", None), "status_code", None)
+            if statut in (404, 410):          # annonce retirée : inutile d'insister ni de payer quoi que ce soit
+                db.changer_statut(o["id"], "ecartee", "extracteur", "annonce retirée (page introuvable)")
+                return
             db.journal("extracteur", f"page illisible ({type(e).__name__}), on garde le résumé", o["id"])
     jp = outils.jobposting_jsonld(page) if page else None
     if jp:
@@ -66,7 +83,7 @@ def _enrichir_une(o: dict):
                              json.dumps({"url": o["url"], "date_du_jour": date.today().isoformat(),
                                          "deja_connu": {k: o.get(k) for k in CLES},
                                          "page": texte or o.get("description")}, ensure_ascii=False),
-                             SCHEMA, max_tokens=900)
+                             SCHEMA, max_tokens=900, reflexion=False, effort="low")   # extraire : pas besoin de réfléchir
             for k in (*CLES, "mode_candidature"):
                 if r.get(k) and (not o.get(k) or (k == "titre" and o.get("source") == "liste" and not jp)):
                     o[k] = r[k]

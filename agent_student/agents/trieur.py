@@ -10,6 +10,7 @@ import json
 import re
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 from .. import config, db, llm, messagerie, outils
 
@@ -50,6 +51,25 @@ def _corps(msg) -> str:
     return html_
 
 
+def _html(msg) -> str:
+    for p in (msg.walk() if msg.is_multipart() else [msg]):
+        if p.get_content_type() == "text/html" and p.get_content_disposition() != "attachment":
+            charge = p.get_payload(decode=True)
+            if charge:
+                return charge.decode(p.get_content_charset() or "utf-8", "replace")
+    return ""
+
+
+def _alerte(exp, sujet, corps, msg) -> int | None:
+    """Alerte emploi (LinkedIn, Jobat, StepStone, Indeed…), reçue directement ou transférée par la personne :
+    chaque offre de l'email entre dans le circuit, sans jamais ouvrir ces sites. Renvoie le nombre d'offres, ou None."""
+    from . import connecteurs, sources
+    offres = connecteurs.offres_d_une_alerte(exp, sujet, corps, _html(msg))
+    if not offres or (not connecteurs.est_alerte(exp) and len(offres) < 2):
+        return None
+    return sources.enregistrer(offres)
+
+
 def _relier(msg, expediteur):
     refs = f"{msg.get('In-Reply-To', '')} {msg.get('References', '')}"
     for mid in re.findall(r"<[^>]+>", refs):
@@ -67,8 +87,9 @@ def _relier(msg, expediteur):
 
 def _boite():
     """Renvoie une liste de (uid, octets_du_mail)."""
-    if config.simulation():
-        dossier = config.DONNEES / "boite_simulee"
+    if config.simulation() or config.env("BOITE_DOSSIER"):
+        # Simulation, ou app : le serveur dépose ici les seuls emails adressés à CET utilisateur (jamais toute la boîte)
+        dossier = Path(config.env("BOITE_DOSSIER")) if config.env("BOITE_DOSSIER") else config.DONNEES / "boite_simulee"
         dossier.mkdir(parents=True, exist_ok=True)
         for f in sorted(dossier.glob("*.eml")):
             yield f.name, f.read_bytes()
@@ -111,6 +132,11 @@ def relever():
         if moi and moi in exp.lower():          # nos propres emails (répétitions, copies) : ignorés, 0 token
             _stocker(uid, None, exp, sujet, corps, "autre", {})
             continue
+        n = _alerte(exp, sujet, corps, msg)
+        if n is not None:                          # alerte emploi : des offres, pas une réponse de recruteur
+            _stocker(uid, None, exp, sujet, corps[:2000], "alerte", {"offres": n})
+            db.journal("trieur", f"alerte emploi lue ({exp[:40]}) : {n} nouvelle(s) offre(s)")
+            continue
         offre_id = _relier(msg, exp)
         if offre_id is None and not MOTS.search(f"{sujet} {corps[:1500]}"):
             _stocker(uid, None, exp, sujet, corps, "autre", {})
@@ -123,7 +149,7 @@ def relever():
             a = llm.demander("trieur", "rapide", llm.prompt("trieur"),
                              json.dumps({"date_email": date_mail, "de": exp, "sujet": sujet, "corps": corps,
                                          "offre_liee": _resume_offre(offre_id)}, ensure_ascii=False),
-                             SCHEMA, max_tokens=500)
+                             SCHEMA, max_tokens=500, reflexion=False, effort="low")
         except llm.BudgetDepasse:
             return
         except Exception as e:

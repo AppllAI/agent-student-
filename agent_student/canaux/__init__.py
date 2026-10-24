@@ -10,6 +10,9 @@ def choisir(nom: str | None = None):
     if nom == "whatsapp":
         from .whatsapp import WhatsApp
         return WhatsApp()
+    if nom == "app":
+        from .app import App
+        return App()
     if nom == "telegram":
         from .telegram import Telegram
         return Telegram()

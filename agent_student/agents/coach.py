@@ -11,7 +11,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .. import config, db, llm, messagerie
+from .. import config, db, llm, memoire, messagerie
 
 LISTE = {"type": "array", "items": {"type": "string"}}
 SCHEMA_COACH = {
@@ -50,8 +50,11 @@ MENU = ("📋 *Ce que tu peux me dire* (ou en vocal 🎙️, avec tes mots) :\n"
         "• « essai » + un lien d'annonce → je te montre ce que je ferais, sans envoyer\n"
         "• « teste-toi » → 5 candidatures d'exemple notées, pour juger ma qualité\n"
         "• « pas d'horeca », « ajoute Louvain-la-Neuve », « libre aussi le dimanche » → changer ta recherche\n"
-        "• « trop long », « plus simple » → régler le style\n"
+        "• « trop long », « plus simple » → je retiens pour toutes les candidatures\n"
+        "• « tu te souviens du magasin de mardi ? » → je me souviens de tout ce qu'on s'est dit\n"
+        "• « tout effacer » → je repars de zéro (CV, recherche, mémoire)\n"
         "• « pause jusqu'au 20 juin » (blocus, vacances) → je reprends tout seul ce jour-là\n"
+        "• « note 14 : trop formel » → noter un test (sur 20) · « test » → où en est la phase de test\n"
         "• « j'ai trouvé un job » · « cherche » · « stats » · « reprendre » · « mode »")
 
 
@@ -61,9 +64,10 @@ def bienvenue():
                     "*Pour démarrer :*\n1️⃣ Envoie ton CV en PDF ici (même court, c'est normal)\n"
                     "2️⃣ Dis-moi ce que tu cherches : type de job, ville, et surtout *quand tu es dispo* "
                     "(jours, heures, période)\n\n"
-                    "🧪 Je démarre en *mode test* : je fais tout seul et j'envoie chaque candidature (avec CV et "
-                    "lettre) à l'adresse email de ton CV, jamais aux employeurs. Ici, je reste silencieux. "
-                    "Quand tout te plaît : « mode validation ».\n\n" + MENU)
+                    "🧪 *Phase de test d'abord* : je fais tout seul et je t'envoie 3 candidatures sur TON email, "
+                    "exactement comme l'employeur les recevrait. Tu les notes sur 20 et tu me dis ce que tu aimes ou "
+                    "pas ; je corrige et je refais un test. Après 2 tests et au moins 15/20, je te demande ton accord "
+                    "avant d'écrire au moindre employeur.\n\n" + MENU)
 
 
 def parler(texte: str):
@@ -71,7 +75,8 @@ def parler(texte: str):
     actif = o.get("domaine_actif", "job_etudiant")
     dom = o.setdefault("domaines", {}).setdefault(actif, {})
     contexte = {"objectif_actuel": dom, "cv_recu": config.chemin_cv().exists() and bool(config.profil_texte().strip()),
-                "profil": config.profil_texte()[:1500], "historique": db.historique(10), "message": texte}
+                "profil": config.profil_texte()[:1500], "historique": db.historique(12), "memoire": memoire.contexte(10) or None,
+                "message": texte}
     try:
         r = llm.demander("coach", "rapide", llm.prompt("coach"), json.dumps(contexte, ensure_ascii=False),
                          SCHEMA_COACH, max_tokens=900)
@@ -145,7 +150,7 @@ def completer_profil(texte: str):
     r = llm.demander("profileur", "rapide",
                      "Transforme ce que la personne dit sur elle en lignes factuelles de fiche profil "
                      "(« - Langues : néerlandais B2 »). Uniquement ce qu'elle affirme.",
-                     texte, SCHEMA_AJOUT, max_tokens=300)
+                     texte, SCHEMA_AJOUT, max_tokens=300, reflexion=False)
     f = config.PROFIL_DIR / "profil.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f, "a", encoding="utf-8") as fh:

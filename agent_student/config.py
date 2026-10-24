@@ -6,7 +6,8 @@ from pathlib import Path
 
 import yaml
 
-RACINE = Path(os.getenv("AGENT_STUDENT_RACINE", Path(__file__).resolve().parent.parent))
+# AGENT_RACINE : contrat commun à tous les agents (le serveur de l'app donne à chacun le dossier de SON utilisateur)
+RACINE = Path(os.getenv("AGENT_RACINE") or os.getenv("AGENT_STUDENT_RACINE") or Path(__file__).resolve().parent.parent)
 DONNEES = RACINE / "donnees"
 PROFIL_DIR = RACINE / "profil"
 OBJECTIF = RACINE / "config" / "objectif.yaml"
@@ -91,12 +92,6 @@ def regles_envoi() -> dict:
 
 
 # ---------- Profil ----------
-def style_texte() -> str:
-    """Tes retours sur le style des lettres (« trop formel », « plus court »…), appris au fil du temps."""
-    f = PROFIL_DIR / "style.md"
-    return f.read_text(encoding="utf-8") if f.exists() else ""
-
-
 def profil_texte() -> str:
     """Le profil (tiré du CV) + tes disponibilités déclarées : c'est la SEULE source de vérité des messages.
     Les disponibilités en font partie, pour que le Juge puisse vérifier « disponible le samedi » contre ce que tu as dit."""
@@ -116,8 +111,10 @@ def profil_texte() -> str:
 
 
 def email_test() -> str:
-    """Mode test : les candidatures arrivent sur l'adresse écrite dans ton CV (sinon celle de l'agent)."""
+    """Mode test : les candidatures arrivent sur l'adresse de ton compte (app), sinon celle écrite dans ton CV."""
     import re
+    if env("EMAIL_TEST"):
+        return env("EMAIL_TEST").strip().lower()
     profil = profil_texte()
     lignes = [l for l in profil.splitlines() if "mail" in l.lower()] + [profil]
     for l in lignes:

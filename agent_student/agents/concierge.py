@@ -134,6 +134,18 @@ def _raccourci(t: str) -> bool:
         from .. import orchestrateur
         messagerie.dire("Je lance une recherche complète maintenant. Je te montre ce que je trouve.")
         orchestrateur.declencher()
+    elif m := re.fullmatch(r"note\s*:?\s*(\d{1,2})(?:[.,]\d)?\s*(?:/\s*20|sur\s*20)?\s*[:,.;-]?\s*(.*)", t.strip(), re.I | re.S):
+        from . import phase_test
+        phase_test.noter(int(m.group(1)), m.group(2))
+    elif b in ("autoriser envoi", "autorise", "j'autorise", "oui envoie aux recruteurs"):
+        from . import phase_test
+        phase_test.autoriser()
+    elif b in ("refaire un test", "encore un test", "nouveau test"):
+        from . import phase_test
+        phase_test.refaire()
+    elif b in ("test", "phase de test", "ou en est le test", "où en est le test"):
+        from . import phase_test
+        messagerie.dire(phase_test.resume())
     elif m := re.fullmatch(r"mode\s+(repetition|validation|auto)", b):
         _changer_mode(m.group(1))
     elif b in ("mode",):
@@ -151,6 +163,11 @@ def _raccourci(t: str) -> bool:
     elif b in ("diagnostic", "verifie", "verifie tout", "check"):
         from . import diagnostic
         _fond(diagnostic.rapport, True)
+    elif b in ("tout effacer", "efface tout", "reinitialiser", "remise a zero", "reset"):
+        messagerie.dire("⚠️ Ça efface TOUT : ton CV, ton profil, ta recherche, les offres, les lettres et ma mémoire. "
+                        "On repart de zéro. Sûr ?", [[("🗑 Oui, tout effacer", "tout effacer confirme"), ("Non", "aide")]])
+    elif b == "tout effacer confirme":
+        reinitialiser()
     elif b in ("vrai tout", "envoie tout pour de vrai", "tout pour de vrai"):
         _vrai_tout()
     elif re.fullmatch(r"vrai\s+\d+", b):
@@ -203,7 +220,7 @@ def _ia(texte: str):
         # Sonnet : c'est lui qui te comprend, la qualité compte plus que la petite différence de prix
         d = llm.demander("concierge", "qualite", llm.prompt("concierge"),
                          json.dumps({"contexte": _contexte(), "aujourd_hui": __import__("datetime").date.today().isoformat(),
-                                    "historique": db.historique(8), "message": texte},
+                                    "historique": db.historique(10), "message": texte},
                                     ensure_ascii=False), SCHEMA, max_tokens=700, reflexion=False)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"{e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
@@ -305,22 +322,37 @@ def details(i):
     if not o:
         return messagerie.dire(f"Pas d'offre n°{i}.")
     texte, boutons = carte(o)
-    messagerie.dire(f"{texte}\n{o['url']}\n\n✉️ *{o['objet_mail'] or '—'}*\n{o['corps_mail'] or ''}\n\n— Lettre —\n"
-                    f"{(o['lettre'] or '(pas encore écrite)')[:2800]}",
+    # La lettre voyage en PDF (comme chez l'employeur), pas recopiée dans le message
+    email = f"\n\n✉️ *{o['objet_mail']}*\n{o['corps_mail'] or ''}" if o["objet_mail"] else ""
+    messagerie.dire(f"{texte}\n{o['url']}{email}" + ("" if o["lettre"] else "\n\n(lettre pas encore écrite)"),
                     boutons if o["statut"] in ("a_valider", "repetee") else None)
     if o["lettre"]:
-        messagerie.fichier(chemin_lettre(i), "Lettre de motivation")
+        messagerie.fichier(chemin_lettre(i), "Lettre de motivation (PDF)")
     if o["statut"] in ("a_valider", "repetee"):
         messagerie.dire("Pas parfaite ? Dis-moi ce qui ne va pas (« trop longue », « parle plus de mon mémoire »…), "
                         "je retiens pour toutes les prochaines lettres.")
 
 
+def reinitialiser():
+    """Remise à zéro complète (après confirmation) : données, CV, profil, objectif, mémoire. Les réglages (.env) restent."""
+    import shutil
+    with db.tx() as c:
+        for table in ("offres", "evenements", "emails_recus", "rdv", "conversation", "carnet", "souvenirs", "kv"):
+            c.execute(f"DELETE FROM {table}")
+    for f in (config.chemin_cv(), config.PROFIL_DIR / "profil.md", config.PROFIL_DIR / "style.md", config.OBJECTIF):
+        f.unlink(missing_ok=True)
+    for d in ("lettres", "rapports", "fiches", "essais", "sortie", "boite_simulee"):
+        shutil.rmtree(config.DONNEES / d, ignore_errors=True)
+    db.journal("concierge", "remise à zéro complète")
+    db.kv_set("bienvenue_envoyee", True)
+    messagerie.dire("C'est fait : tout est effacé.")
+    coach.bienvenue()
+
+
 def noter_style(remarque: str):
-    """Tes remarques de style s'appliquent à TOUTES les lettres suivantes (apprentissage continu)."""
-    f = config.PROFIL_DIR / "style.md"
-    f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f, "a", encoding="utf-8") as fh:
-        fh.write(f"- {remarque.strip()}\n")
+    """Tes remarques de style vont dans la mémoire durable : elles s'appliquent à TOUTES les lettres suivantes."""
+    from .. import memoire
+    memoire.retenir(remarque, "style")
     messagerie.dire("Noté : toutes les prochaines lettres en tiendront compte.")
 
 
@@ -337,7 +369,19 @@ def regler_budget(euros: float):
     messagerie.dire(f"Budget IA : {euros:g} € par jour.")
 
 
+def _test_d_abord() -> bool:
+    """Tant que la phase de test n'est pas réussie, rien ne part chez un employeur."""
+    from . import phase_test
+    if phase_test.actif():
+        messagerie.dire("Pas encore : on termine d'abord la phase de test (au moins 2 tests notés, dont un ≥ 15/20, "
+                        "puis ton accord). " + phase_test.resume())
+        return True
+    return False
+
+
 def _changer_mode(mode: str):
+    if mode != "repetition" and _test_d_abord():
+        return
     o = config.objectif()
     o.setdefault("envoi", {})["mode"] = mode
     config.sauver_objectif(o)
@@ -354,6 +398,8 @@ def _changer_mode(mode: str):
 
 
 def _vrai_tout():
+    if _test_d_abord():
+        return
     ids = [r["id"] for r in db.q("SELECT id FROM offres WHERE statut='repetee' AND date(envoye_le) >= date('now', '-14 days')")]
     if not ids:
         return messagerie.dire("Aucune candidature testée récente à envoyer.")
@@ -366,6 +412,8 @@ def _vrai_tout():
 
 
 def _vrai(i):
+    if _test_d_abord():
+        return
     o = db.q1("SELECT statut FROM offres WHERE id=?", i)
     if not o or o["statut"] != "repetee":
         return messagerie.dire("Cette candidature n'a pas été envoyée en test (ou est déjà partie).")
@@ -392,9 +440,10 @@ def _banc():
     texte = f.read_text(encoding="utf-8")
     note = re.search(r"Note moyenne du Juge : ([\d.]+)/10\** · coût : ([\d.]+) €", texte)
     messagerie.dire(f"Test terminé : note moyenne {note.group(1)}/10, coût {note.group(2)} €. "
-                    "Le rapport complet (les 5 lettres) est ci-dessous. Dis-moi ce qui te plaît ou pas, j'apprends.\n"
+                    "Le rapport complet (les 5 lettres) est dans le PDF ci-dessous. Dis-moi ce qui te plaît ou pas, "
+                    "je retiens.\n"
                     "Ensuite : envoie-moi « essai » + le lien d'une vraie offre.")
-    messagerie.fichier(f, "Rapport du test")
+    messagerie.fichier(f.with_suffix(".pdf") if f.with_suffix(".pdf").exists() else f, "Rapport du test (PDF)")
 
 
 def _fait(ids):

@@ -27,8 +27,8 @@ TRANSITIONS = {
     "redigee": {"a_valider", "validee", "ecartee", "erreur"},
     "a_valider": {"validee", "ecartee", "qualifiee"},
     "validee": {"envoyee", "manuelle", "repetee", "ecartee", "a_valider", "erreur"},
-    "repetee": {"validee", "ecartee"},
-    "manuelle": {"envoyee", "ecartee"},
+    "repetee": {"validee", "ecartee", "qualifiee"},      # qualifiee : réécrite pour le test suivant (phase de test)
+    "manuelle": {"envoyee", "ecartee", "qualifiee"},
     "envoyee": {"relancee", "refus", "entretien"},
     "relancee": {"refus", "entretien", "sans_reponse"},
     "entretien": {"refus", "offre_recue"},
@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS offres (
     message_id TEXT,                 -- Message-ID de notre email (pour relier les réponses)
     publie_le TEXT,                  -- date de publication (fraîcheur = chances d'entretien)
     pourquoi TEXT,                   -- les 2-3 arguments « pourquoi toi » trouvés par l'Évaluateur
-    note_lettre INTEGER              -- note du Juge /10
+    note_lettre INTEGER,             -- note du Juge /10
+    lettre_json TEXT                 -- la lettre en blocs (expéditeur, destinataire, paragraphes…) pour le PDF
 );
 CREATE INDEX IF NOT EXISTS ix_offres_statut ON offres(statut);
 
@@ -86,6 +87,12 @@ CREATE TABLE IF NOT EXISTS couts (
     le TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS kv (cle TEXT PRIMARY KEY, valeur TEXT);
+-- Mémoire longue (memoire.py) : un résumé par journée écoulée + les souvenirs durables
+CREATE TABLE IF NOT EXISTS carnet (jour TEXT PRIMARY KEY, resume TEXT);
+CREATE TABLE IF NOT EXISTS souvenirs (
+    id INTEGER PRIMARY KEY, genre TEXT, texte TEXT, le TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_conversation_le ON conversation(le);
 """
 
 _c: sqlite3.Connection | None = None
@@ -109,7 +116,7 @@ def _migrer(c):
     """Ajoute les colonnes des nouvelles versions à une base existante (sans rien perdre)."""
     existantes = {r[1] for r in c.execute("PRAGMA table_info(offres)")}
     for col in ("publie_le TEXT", "pourquoi TEXT", "note_lettre INTEGER", "horaires TEXT", "salaire_horaire REAL",
-                "date_limite TEXT"):
+                "date_limite TEXT", "lettre_json TEXT"):
         if col.split()[0] not in existantes:
             c.execute(f"ALTER TABLE offres ADD COLUMN {col}")
     c.commit()
@@ -182,4 +189,6 @@ def dire(role: str, texte: str):
 
 
 def historique(n=12):
-    return [dict(r) for r in q("SELECT role, texte FROM conversation ORDER BY id DESC LIMIT ?", n)][::-1]
+    """Le fil récent, daté (les longs messages de l'agent sont raccourcis : le détail est dans la mémoire)."""
+    return [dict(r) for r in q("SELECT substr(le, 1, 16) AS le, role, substr(texte, 1, 700) AS texte "
+                               "FROM conversation ORDER BY id DESC LIMIT ?", n)][::-1]

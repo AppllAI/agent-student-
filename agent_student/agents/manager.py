@@ -12,7 +12,7 @@ import json
 import re
 from datetime import date
 
-from .. import config, db, llm, messagerie
+from .. import config, db, llm, memoire, messagerie
 
 # ---------- Les outils du Manager ----------
 _ID = {"type": "integer"}
@@ -68,8 +68,26 @@ OUTILS = [
     {"name": "ajouter_au_profil", "description": "Ajoute un FAIT qu'elle affirme sur elle (langue, expérience, "
      "permis, nouveau numéro…) à sa fiche profil.",
      "input_schema": {"type": "object", "properties": {"fait": {"type": "string"}}, "required": ["fait"]}},
-    {"name": "regle_de_style", "description": "Retient une préférence d'écriture pour toutes les lettres suivantes.",
-     "input_schema": {"type": "object", "properties": {"consigne": {"type": "string"}}, "required": ["consigne"]}},
+    {"name": "noter_test", "description": "Elle note le test reçu par email (sur 20) et dit ce qu'elle a aimé / "
+     "moins aimé. À utiliser dès qu'elle donne une note ou un avis sur les candidatures de test.",
+     "input_schema": {"type": "object", "properties": {"note": {"type": "integer", "minimum": 0, "maximum": 20},
+                                                       "commentaire": {"type": "string"}}, "required": ["note"]}},
+    {"name": "autoriser_envoi_reel", "description": "Elle donne CLAIREMENT son accord pour écrire aux recruteurs "
+     "après un test réussi. Jamais sans un oui explicite.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "se_souvenir", "description": "Fouille TOUTE la mémoire (messages échangés, offres, emails reçus, "
+     "rendez-vous, carnet de bord) quand elle parle d'une chose passée qui n'est pas dans le fil récent "
+     "(« la boîte dont je t'ai parlé il y a 5 jours », « le cabinet de mardi »). Résultats datés.",
+     "input_schema": {"type": "object", "properties": {
+         "mots": {"type": "string", "description": "mots-clés (employeur, ville, sujet…) ; vide = tout sur la période"},
+         "depuis": {"type": "string", "description": "AAAA-MM-JJ, début de la période (calculée depuis aujourd_hui)"},
+         "jusqu_au": {"type": "string", "description": "AAAA-MM-JJ, fin de la période"}}}},
+    {"name": "retenir", "description": "Retient DURABLEMENT ce qu'elle dit qui restera vrai : préférence, décision "
+     "(« plus jamais chez X »), fait sur elle, ou remarque de style pour ses lettres (genre « style »).",
+     "input_schema": {"type": "object", "properties": {
+         "texte": {"type": "string", "description": "une phrase claire, à la 3e personne"},
+         "genre": {"type": "string", "enum": ["preference", "decision", "fait", "style"]}}, "required": ["texte", "genre"]}},
+    {"name": "oublier", "description": "Efface un souvenir durable devenu faux (« oublie que je veux Liège »).",
+     "input_schema": {"type": "object", "properties": {"mots": {"type": "string"}}, "required": ["mots"]}},
     {"name": "diagnostic", "description": "Vérifie que tout marche : clé IA, crédit, boîte mail (envoi + lecture), "
      "CV, adresse de test, pause, budget. À utiliser quand « ça ne marche pas » ou « rien ne se passe ».",
      "input_schema": {"type": "object", "properties": {}}},
@@ -110,12 +128,22 @@ Façon de répondre :
   ou un récapitulatif demandé. Pas de spéculation (« peut-être que… je ne peux pas vérifier ») : tu as les outils.
 - Si un outil a déjà envoyé un message ou un fichier à la personne, ne le répète pas.
 - Les données de l'état actuel sont dans le contexte ; l'historique peut être dépassé.
+
+Mémoire (tu te souviens de tout) :
+- Le fil récent est dans le message ; ci-dessous, ce que tu sais d'elle durablement et le carnet de bord des
+  derniers jours. Si elle évoque une chose passée (« il y a 5 jours », « la boîte de mardi », « comme je t'ai dit »)
+  et qu'elle n'est pas là, appelle `se_souvenir` (calcule les dates depuis `aujourd_hui`) AVANT de répondre :
+  ne dis jamais « je ne me souviens pas » sans avoir cherché.
+- Quand elle dit quelque chose qui restera vrai (préférence, décision, fait sur elle, remarque sur ses lettres),
+  appelle `retenir`. Ne lui redemande jamais une information que ta mémoire contient déjà.
 """
 
 
 def _systeme() -> str:
-    """Consignes communes + ce que le Manager sait du métier (prompts/manager.md)."""
-    return SYSTEME + "\n" + llm.prompt("manager")
+    """Consignes communes + ce que le Manager sait du métier (prompts/manager.md) + sa mémoire longue.
+    La mémoire ne change qu'une fois par jour (ou quand il retient quelque chose) : le prompt reste en cache."""
+    m = memoire.contexte(14)
+    return SYSTEME + "\n" + llm.prompt("manager") + (f"\n\n# Ta mémoire\n{m}" if m else "")
 
 
 def _ids_ou_tous(ids, statut, jours=None):
@@ -132,7 +160,9 @@ def _etat() -> dict:
     rdv = [dict(r) for r in db.q("SELECT id, entreprise, debut, lieu FROM rdv WHERE statut='propose'")]
     questions = [{"email_id": r["id"], "de": r["expediteur"], "resume": json.loads(r["analyse"] or "{}").get("resume")}
                  for r in db.q("SELECT * FROM emails_recus WHERE categorie='question' AND traite=0")]
+    from . import phase_test
     return {"aujourd_hui": date.today().isoformat(), "mode": config.regles_envoi()["mode"],
+            "phase_de_test": phase_test.resume(),
             "en_pause": bool(db.kv_get("pause", False)), "pause_jusqu": db.kv_get("pause_jusqu"),
             "email_de_test": config.email_test(), "reglages_envoi": config.regles_envoi(), "bilan": rapporteur.stats(),
             "en_attente_de_validation": attente, "rdv_proposes": rdv, "questions_recruteurs": questions}
@@ -208,8 +238,22 @@ def executer(nom: str, a: dict) -> str:
             coach.parler(a["consigne"])
         elif nom == "ajouter_au_profil":
             coach.completer_profil(a["fait"])
-        elif nom == "regle_de_style":
-            concierge.noter_style(a["consigne"])
+        elif nom == "noter_test":
+            from . import phase_test
+            phase_test.noter(int(a["note"]), a.get("commentaire") or "")
+        elif nom == "autoriser_envoi_reel":
+            from . import phase_test
+            phase_test.autoriser()
+        elif nom == "se_souvenir":
+            trouves = memoire.chercher(a.get("mots") or "", a.get("depuis"), a.get("jusqu_au"))
+            return "\n".join(trouves) or "rien trouvé dans la mémoire pour cette recherche"
+        elif nom == "retenir":
+            if a.get("genre") == "style":
+                concierge.noter_style(a["texte"])
+            else:
+                return "retenu" if memoire.retenir(a["texte"], a.get("genre") or "fait") else "déjà connu"
+        elif nom == "oublier":
+            return f"{memoire.oublier(a['mots'])} souvenir(s) effacé(s)"
         elif nom == "diagnostic":
             from . import diagnostic
             return diagnostic.rapport(envoyer=False)
@@ -274,7 +318,7 @@ def repondre(texte: str):
         return messagerie.dire(finale) if finale else None
     contexte = json.dumps(_etat(), ensure_ascii=False)
     messages = [{"role": "user", "content": f"Contexte actuel :\n{contexte}\n\nHistorique récent :\n"
-                 f"{json.dumps(db.historique(10), ensure_ascii=False)}\n\nSon message :\n{texte}"}]
+                 f"{json.dumps(db.historique(14), ensure_ascii=False)}\n\nSon message :\n{texte}"}]
     try:
         finale = llm.agir("manager", "qualite", _systeme(), messages, OUTILS, executer)
     except llm.BudgetDepasse as e:
