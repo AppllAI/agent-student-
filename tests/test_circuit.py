@@ -475,6 +475,23 @@ class CanalApp(unittest.TestCase):
             t.sleep(0.1)
         self.assertEqual(recus[0].texte, "salut")
 
+    def test_mode_econome_s_arrete_seul(self):
+        import threading
+        from agent_student.canaux.app import App
+        os.environ["QUITTER_APRES_MIN"] = "0.01"            # 0,6 s sans message → l'agent rend la main
+        try:
+            t = threading.Thread(target=App().ecouter, args=(lambda m: None,), daemon=True)
+            t.start()
+            t.join(5)
+            self.assertFalse(t.is_alive())
+        finally:
+            del os.environ["QUITTER_APRES_MIN"]
+
+    def test_tournee(self):
+        from agent_student import orchestrateur
+        orchestrateur.tournee()                              # une tournée complète, sans planter
+        self.assertTrue(db.kv_get("derniere_recherche_web"))
+
 
 class Connecteurs(unittest.TestCase):
     """Les sources communes à tous les agents, lues hors ligne avec des réponses enregistrées."""

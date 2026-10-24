@@ -67,13 +67,22 @@ class App:
             self.c.commit()
 
     def ecouter(self, callback):
+        """Écoute la boîte d'entrée. Avec QUITTER_APRES_MIN (mode économe du serveur), s'arrête après ce délai sans
+        message de la personne, dès qu'aucun travail n'est en cours : le serveur le relancera au prochain message."""
+        from .. import orchestrateur
         from ..agents.concierge import Entrant
+        delai = float(config.env("QUITTER_APRES_MIN", "0") or 0) * 60
+        dernier = time.time()
         while True:
+            if delai and time.time() - dernier > delai and not orchestrateur.occupe():
+                return
             with self.verrou:
                 rows = self.c.execute("SELECT * FROM entree WHERE traite=0 ORDER BY id LIMIT 20").fetchall()
                 if rows:
                     self.c.executemany("UPDATE entree SET traite=1 WHERE id=?", [(r["id"],) for r in rows])
                     self.c.commit()
+            if rows:
+                dernier = time.time()
             for r in rows:
                 callback(Entrant(texte=r["texte"] or "", fichier=Path(r["fichier"]) if r["fichier"] else None,
                                  nom_fichier=r["nom_fichier"] or ""))

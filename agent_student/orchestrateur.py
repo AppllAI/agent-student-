@@ -177,6 +177,27 @@ def un_cycle():
     horaire()
 
 
+def tournee():
+    """Mode économe (serveur de l'app, beaucoup d'utilisateurs) : UNE tournée de tout le travail de fond, puis l'agent
+    s'arrête. Chaque tâche garde son propre rythme (recherche web 2×/jour, prospection 1×/jour…) grâce à ses dates
+    de dernier passage : lancer une tournée souvent ne coûte rien de plus."""
+    db.connexion()
+    coach.appliquer_identite()
+    if time.time() - float(db.kv_get("derniere_recherche_web") or 0) > config.env_int("INTERVALLE_WEB_MIN", 720) * 60:
+        db.kv_set("derniere_recherche_web", time.time())
+        recherche_web()
+    veille()
+    prospection()
+    boite()
+    horaire()
+    _envoyer()
+
+
+def occupe() -> bool:
+    """Un travail est en cours (traitement, envoi, boîte) : ne pas s'arrêter maintenant."""
+    return any(v.locked() for v in (_traitement, _envoi, _boite, _recherche))
+
+
 def _boucle(f, minutes, decalage=0):
     time.sleep(decalage)
     while True:

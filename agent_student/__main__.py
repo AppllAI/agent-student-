@@ -65,6 +65,7 @@ def main():
     p.add_argument("--verifier", action="store_true")
     p.add_argument("--essai", metavar="URL")
     p.add_argument("--banc-essai", action="store_true")
+    p.add_argument("--tournee", action="store_true", help="une tournée de travail de fond puis arrêt (serveur de l'app)")
     a = p.parse_args()
     db.connexion()
     if a.verifier:
@@ -75,6 +76,11 @@ def main():
         return print(stats())
     if a.une_fois:
         return orchestrateur.un_cycle()
+    if a.tournee:
+        from . import messagerie
+        from .canaux import choisir
+        messagerie.brancher(choisir(a.canal))
+        return orchestrateur.tournee()
     if a.essai:
         from .agents.essai import essayer
         return essayer(a.essai)
