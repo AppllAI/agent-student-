@@ -21,7 +21,7 @@ from email.utils import formatdate, make_msgid
 from zoneinfo import ZoneInfo
 
 from .. import config, db, messagerie, outils, pdf
-from . import controle
+from . import controle, phase_test
 from .redacteur import chemin_lettre
 
 try:    # Windows n'a pas la base des fuseaux horaires : elle vient du paquet « tzdata »
@@ -41,10 +41,19 @@ def envoyes_aujourdhui() -> int:
                  date.today().isoformat())["n"]
 
 
-def construire(o, repetition: bool = False) -> EmailMessage:
+def expediteur(m: EmailMessage) -> str:
+    """De : « Prénom Nom <adresse d'envoi> ». Dans l'app, l'adresse d'envoi est celle du service et REPONSE_A
+    (une adresse propre à chaque utilisateur) ramène les réponses des recruteurs vers SON espace."""
     moi = config.env("EMAIL_ADRESSE", "moi@exemple.be")
-    m = EmailMessage()
     m["From"] = f"{config.env('NOM_CANDIDAT')} <{moi}>" if config.env("NOM_CANDIDAT") else moi
+    if config.env("REPONSE_A"):
+        m["Reply-To"] = config.env("REPONSE_A")
+    return moi
+
+
+def construire(o, repetition: bool = False) -> EmailMessage:
+    m = EmailMessage()
+    moi = expediteur(m)
     m["To"] = config.email_test() if repetition else o["email_contact"]
     dest = o["email_contact"] or "via leur site"
     m["Subject"] = (f"[TEST n°{o['id']} → {dest}] " if repetition else "") + o["objet_mail"]
@@ -168,6 +177,8 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
                                     "ORDER BY COALESCE(publie_le, date(cree_le)) DESC, score DESC")]
     for o in offres:
         repetition = regles["mode"] == "repetition" and o["id"] not in reels
+        if repetition and not phase_test.peut_envoyer_test():
+            continue                     # phase de test : on attend sa note avant d'envoyer le test suivant
         soucis = controle.problemes(o) if o["email_contact"] or repetition else []
         if not repetition:
             if not o["email_contact"]:
@@ -212,6 +223,7 @@ def envoyer(max_par_cycle: int = 6, pause_secondes: tuple = (90, 300)) -> int:
             else:   # via leur site : reste « à faire via site » pour plus tard, sans te déranger
                 db.changer_statut(o["id"], "manuelle", "envoyeur", f"test (via site) : envoyé à {config.email_test()}")
             db.journal("envoyeur", f"test n°{o['id']} → {config.email_test()} ({o['entreprise'] or o['titre']})")
+            phase_test.test_envoye(o["id"])
         else:
             db.changer_statut(o["id"], "envoyee", "envoyeur", message_id=m["Message-ID"], envoye_le=maintenant)
         envoyees += 1

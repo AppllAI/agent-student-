@@ -141,6 +141,8 @@ def boite():
 
 def horaire():
     _proteger("carnet", memoire.mettre_a_jour_carnet)       # mémoire : résume les journées écoulées (1 fois chacune)
+    from .agents import phase_test
+    _proteger("phase de test", phase_test.verifier)
     _proteger("préparateur", preparateur.preparer)
     if en_pause():
         return

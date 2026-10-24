@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
 from .. import config, db, llm, messagerie
-from .envoyeur import expedier
+from .envoyeur import expedier, expediteur
 
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
@@ -72,7 +72,7 @@ def _repondre(email_id: int, consigne: dict) -> None:
                      json.dumps({"email_recu": {"de": e["expediteur"], "sujet": e["sujet"], "corps": e["corps"][:3000]},
                                  "decision": consigne}, ensure_ascii=False), SCHEMA, max_tokens=600)
     m = EmailMessage()
-    m["From"] = config.env("EMAIL_ADRESSE", "moi@exemple.be")
+    expediteur(m)
     m["To"] = e["expediteur"]
     m["Subject"] = e["sujet"] if (e["sujet"] or "").lower().startswith("re:") else f"Re: {e['sujet']}"
     m["Date"] = formatdate(localtime=True)

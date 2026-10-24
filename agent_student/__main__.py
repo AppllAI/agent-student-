@@ -59,7 +59,7 @@ def verifier():
 
 def main():
     p = argparse.ArgumentParser(prog="agent_student")
-    p.add_argument("--canal", choices=["console", "whatsapp", "telegram"])
+    p.add_argument("--canal", choices=["console", "whatsapp", "telegram", "app"])
     p.add_argument("--une-fois", action="store_true")
     p.add_argument("--stats", action="store_true")
     p.add_argument("--verifier", action="store_true")

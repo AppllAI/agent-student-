@@ -134,6 +134,18 @@ def _raccourci(t: str) -> bool:
         from .. import orchestrateur
         messagerie.dire("Je lance une recherche complète maintenant. Je te montre ce que je trouve.")
         orchestrateur.declencher()
+    elif m := re.fullmatch(r"note\s*:?\s*(\d{1,2})(?:[.,]\d)?\s*(?:/\s*20|sur\s*20)?\s*[:,.;-]?\s*(.*)", t.strip(), re.I | re.S):
+        from . import phase_test
+        phase_test.noter(int(m.group(1)), m.group(2))
+    elif b in ("autoriser envoi", "autorise", "j'autorise", "oui envoie aux recruteurs"):
+        from . import phase_test
+        phase_test.autoriser()
+    elif b in ("refaire un test", "encore un test", "nouveau test"):
+        from . import phase_test
+        phase_test.refaire()
+    elif b in ("test", "phase de test", "ou en est le test", "où en est le test"):
+        from . import phase_test
+        messagerie.dire(phase_test.resume())
     elif m := re.fullmatch(r"mode\s+(repetition|validation|auto)", b):
         _changer_mode(m.group(1))
     elif b in ("mode",):
@@ -357,7 +369,19 @@ def regler_budget(euros: float):
     messagerie.dire(f"Budget IA : {euros:g} € par jour.")
 
 
+def _test_d_abord() -> bool:
+    """Tant que la phase de test n'est pas réussie, rien ne part chez un employeur."""
+    from . import phase_test
+    if phase_test.actif():
+        messagerie.dire("Pas encore : on termine d'abord la phase de test (au moins 2 tests notés, dont un ≥ 15/20, "
+                        "puis ton accord). " + phase_test.resume())
+        return True
+    return False
+
+
 def _changer_mode(mode: str):
+    if mode != "repetition" and _test_d_abord():
+        return
     o = config.objectif()
     o.setdefault("envoi", {})["mode"] = mode
     config.sauver_objectif(o)
@@ -374,6 +398,8 @@ def _changer_mode(mode: str):
 
 
 def _vrai_tout():
+    if _test_d_abord():
+        return
     ids = [r["id"] for r in db.q("SELECT id FROM offres WHERE statut='repetee' AND date(envoye_le) >= date('now', '-14 days')")]
     if not ids:
         return messagerie.dire("Aucune candidature testée récente à envoyer.")
@@ -386,6 +412,8 @@ def _vrai_tout():
 
 
 def _vrai(i):
+    if _test_d_abord():
+        return
     o = db.q1("SELECT statut FROM offres WHERE id=?", i)
     if not o or o["statut"] != "repetee":
         return messagerie.dire("Cette candidature n'a pas été envoyée en test (ou est déjà partie).")

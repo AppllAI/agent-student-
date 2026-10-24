@@ -7,7 +7,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
 from .. import config, db
-from .envoyeur import _joindre_pdf, _nom, expedier, heure_ouvrable
+from .envoyeur import _joindre_pdf, _nom, expedier, expediteur, heure_ouvrable
 from .redacteur import chemin_lettre
 
 MODELE = """Madame, Monsieur,
@@ -37,8 +37,7 @@ def relancer():
         if age < timedelta(days=n) or not o["email_contact"]:
             continue
         m = EmailMessage()
-        moi = config.env("EMAIL_ADRESSE", "moi@exemple.be")
-        m["From"] = f"{config.env('NOM_CANDIDAT')} <{moi}>" if config.env("NOM_CANDIDAT") else moi
+        expediteur(m)
         m["To"] = o["email_contact"]
         m["Subject"] = f"Re: {o['objet_mail']}"
         m["Date"] = formatdate(localtime=True)

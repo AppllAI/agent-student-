@@ -10,6 +10,7 @@ import json
 import re
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 from .. import config, db, llm, messagerie, outils
 
@@ -67,8 +68,9 @@ def _relier(msg, expediteur):
 
 def _boite():
     """Renvoie une liste de (uid, octets_du_mail)."""
-    if config.simulation():
-        dossier = config.DONNEES / "boite_simulee"
+    if config.simulation() or config.env("BOITE_DOSSIER"):
+        # Simulation, ou app : le serveur dépose ici les seuls emails adressés à CET utilisateur (jamais toute la boîte)
+        dossier = Path(config.env("BOITE_DOSSIER")) if config.env("BOITE_DOSSIER") else config.DONNEES / "boite_simulee"
         dossier.mkdir(parents=True, exist_ok=True)
         for f in sorted(dossier.glob("*.eml")):
             yield f.name, f.read_bytes()

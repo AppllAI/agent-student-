@@ -83,6 +83,15 @@ def dire(texte: str, boutons: Boutons | None = None):
         print(f"\n💬 {texte}\n" + texte_boutons(boutons), flush=True)
 
 
+def demander_note(texte: str, boutons: Boutons | None = None):
+    """Demande de note de la phase de test : formulaire dédié dans l'app, message normal ailleurs.
+    Toujours affichée, même en mode test (c'est justement le moment où on a besoin de son avis)."""
+    if getattr(_local, "capture", None) is None and _canal and hasattr(_canal, "demander_note"):
+        db.dire("agent", texte)
+        return _canal.demander_note(texte, boutons)
+    dire(texte, boutons)
+
+
 def fichier(chemin: Path, legende: str = ""):
     if _canal:
         _canal.envoyer_fichier(Path(chemin), legende)

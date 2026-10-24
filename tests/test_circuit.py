@@ -10,7 +10,7 @@ from pathlib import Path
 
 RACINE_PROJET = Path(__file__).resolve().parent.parent
 TMP = Path(tempfile.mkdtemp(prefix="agent_student_test_"))
-os.environ.update({"AGENT_STUDENT_RACINE": str(TMP), "SIMULATION": "1", "ANTHROPIC_API_KEY": "",
+os.environ.update({"AGENT_STUDENT_RACINE": str(TMP), "SIMULATION": "1", "ANTHROPIC_API_KEY": "", "TEST_OBLIGATOIRE": "0",
                    "EMAIL_ADRESSE": "moi@exemple.be"})
 sys.path.insert(0, str(RACINE_PROJET))
 
@@ -388,6 +388,90 @@ class Memoire(unittest.TestCase):
                       "datetime('now', '-9 days'))")
         self.assertIn("Lambrechts", manager.executer("se_souvenir", {"mots": "Lambrechts"}))
         self.assertIn("mémoire", manager._systeme())
+
+
+class PhaseDeTest(unittest.TestCase):
+    """Obligatoire : 2 tests notés sur 20, ≥ 15, puis l'accord de la personne avant tout envoi réel."""
+
+    def setUp(self):
+        os.environ["TEST_OBLIGATOIRE"] = "1"
+        db.kv_set("phase_test", None)
+        o = config.objectif()
+        o.setdefault("envoi", {})["mode"] = "repetition"
+        config.sauver_objectif(o)
+        self.canal = CanalTest()
+        messagerie.brancher(self.canal)
+        self.ids = []
+        with db.tx() as c:
+            for i in range(3):
+                self.ids.append(c.execute(
+                    "INSERT INTO offres (cle, url, titre, entreprise, statut, infos_cabinet, lettre, envoye_le) "
+                    "VALUES (?, ?, 'Juriste', ?, 'repetee', '{}', 'Lettre', datetime('now'))",
+                    (f"pt{i}{self._testMethodName}", f"https://x.be/pt{i}", f"Cabinet PT{i}")).lastrowid)
+        orchestrateur.en_fond = lambda f, *a: None              # pas de réécriture réelle pendant ce test
+
+    def tearDown(self):
+        os.environ["TEST_OBLIGATOIRE"] = "0"
+        orchestrateur.en_fond = lambda f, *a: f(*a)
+
+    def test_parcours_complet(self):
+        from agent_student import memoire
+        from agent_student.agents import phase_test
+        concierge.recevoir(Entrant(texte="mode auto"))
+        self.assertIn("Pas encore", self.canal.messages[-1])               # rien de réel avant le test
+        for oid in self.ids:
+            self.assertTrue(phase_test.peut_envoyer_test())
+            phase_test.test_envoye(oid)
+        self.assertFalse(phase_test.peut_envoyer_test())                    # on attend sa note
+        self.assertIn("note sur 20", self.canal.messages[-1])
+        concierge.recevoir(Entrant(texte="note 12 : trop formel, j'aime l'accroche"))
+        e = phase_test.etat()
+        self.assertEqual((e["tour"], e["statut"], e["ids"]), (2, "en_cours", []))
+        self.assertIn("trop formel", memoire.notes_style())                 # ses remarques guident les lettres
+        self.assertEqual({db.q1("SELECT statut FROM offres WHERE id=?", i)["statut"] for i in self.ids}, {"qualifiee"})
+        for oid in self.ids:                                                # test n°2 envoyé
+            phase_test.test_envoye(oid)
+        concierge.recevoir(Entrant(texte="note 16/20 parfait"))
+        self.assertEqual(phase_test.etat()["statut"], "attente_accord")
+        self.assertEqual(config.regles_envoi()["mode"], "repetition")       # toujours rien sans son accord
+        concierge.recevoir(Entrant(texte="autoriser envoi"))
+        self.assertFalse(phase_test.actif())
+        self.assertEqual(config.regles_envoi()["mode"], "auto")
+        o = config.objectif()
+        o["envoi"]["mode"] = "repetition"
+        config.sauver_objectif(o)
+
+    def test_une_bonne_note_au_premier_test_ne_suffit_pas(self):
+        from agent_student.agents import phase_test
+        for oid in self.ids:
+            phase_test.test_envoye(oid)
+        phase_test.noter(18, "super")
+        self.assertEqual(phase_test.etat()["tour"], 2)                      # au moins 2 tests
+        self.assertTrue(phase_test.actif())
+
+
+class CanalApp(unittest.TestCase):
+    def test_aller_retour(self):
+        import threading
+        import time as t
+        from agent_student.canaux.app import App, ouvrir
+        canal = App()
+        canal.envoyer("Bonjour", [[("✅ Envoyer", "ok 1")]])
+        canal.demander_note("Donne-moi une note sur 20")
+        canal.envoyer_fichier(TMP / "x.pdf", "Lettre")
+        c = ouvrir(config.RACINE)
+        rows = c.execute("SELECT genre, texte, boutons FROM sortie ORDER BY id").fetchall()
+        self.assertEqual([r["genre"] for r in rows], ["texte", "notation", "fichier"])
+        self.assertIn('"commande": "ok 1"', rows[0]["boutons"])
+        recus = []
+        threading.Thread(target=canal.ecouter, args=(recus.append,), daemon=True).start()
+        c.execute("INSERT INTO entree (texte) VALUES ('salut')")
+        c.commit()
+        for _ in range(30):
+            if recus:
+                break
+            t.sleep(0.1)
+        self.assertEqual(recus[0].texte, "salut")
 
 
 class SitesEtEmails(unittest.TestCase):

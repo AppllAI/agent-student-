@@ -68,6 +68,12 @@ OUTILS = [
     {"name": "ajouter_au_profil", "description": "Ajoute un FAIT qu'elle affirme sur elle (langue, expérience, "
      "permis, nouveau numéro…) à sa fiche profil.",
      "input_schema": {"type": "object", "properties": {"fait": {"type": "string"}}, "required": ["fait"]}},
+    {"name": "noter_test", "description": "Elle note le test reçu par email (sur 20) et dit ce qu'elle a aimé / "
+     "moins aimé. À utiliser dès qu'elle donne une note ou un avis sur les candidatures de test.",
+     "input_schema": {"type": "object", "properties": {"note": {"type": "integer", "minimum": 0, "maximum": 20},
+                                                       "commentaire": {"type": "string"}}, "required": ["note"]}},
+    {"name": "autoriser_envoi_reel", "description": "Elle donne CLAIREMENT son accord pour écrire aux recruteurs "
+     "après un test réussi. Jamais sans un oui explicite.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "se_souvenir", "description": "Fouille TOUTE la mémoire (messages échangés, offres, emails reçus, "
      "rendez-vous, carnet de bord) quand elle parle d'une chose passée qui n'est pas dans le fil récent "
      "(« la boîte dont je t'ai parlé il y a 5 jours », « le cabinet de mardi »). Résultats datés.",
@@ -154,7 +160,9 @@ def _etat() -> dict:
     rdv = [dict(r) for r in db.q("SELECT id, entreprise, debut, lieu FROM rdv WHERE statut='propose'")]
     questions = [{"email_id": r["id"], "de": r["expediteur"], "resume": json.loads(r["analyse"] or "{}").get("resume")}
                  for r in db.q("SELECT * FROM emails_recus WHERE categorie='question' AND traite=0")]
+    from . import phase_test
     return {"aujourd_hui": date.today().isoformat(), "mode": config.regles_envoi()["mode"],
+            "phase_de_test": phase_test.resume(),
             "en_pause": bool(db.kv_get("pause", False)), "pause_jusqu": db.kv_get("pause_jusqu"),
             "email_de_test": config.email_test(), "reglages_envoi": config.regles_envoi(), "bilan": rapporteur.stats(),
             "en_attente_de_validation": attente, "rdv_proposes": rdv, "questions_recruteurs": questions}
@@ -230,6 +238,12 @@ def executer(nom: str, a: dict) -> str:
             coach.parler(a["consigne"])
         elif nom == "ajouter_au_profil":
             coach.completer_profil(a["fait"])
+        elif nom == "noter_test":
+            from . import phase_test
+            phase_test.noter(int(a["note"]), a.get("commentaire") or "")
+        elif nom == "autoriser_envoi_reel":
+            from . import phase_test
+            phase_test.autoriser()
         elif nom == "se_souvenir":
             trouves = memoire.chercher(a.get("mots") or "", a.get("depuis"), a.get("jusqu_au"))
             return "\n".join(trouves) or "rien trouvé dans la mémoire pour cette recherche"

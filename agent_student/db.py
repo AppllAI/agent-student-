@@ -27,8 +27,8 @@ TRANSITIONS = {
     "redigee": {"a_valider", "validee", "ecartee", "erreur"},
     "a_valider": {"validee", "ecartee", "qualifiee"},
     "validee": {"envoyee", "manuelle", "repetee", "ecartee", "a_valider", "erreur"},
-    "repetee": {"validee", "ecartee"},
-    "manuelle": {"envoyee", "ecartee"},
+    "repetee": {"validee", "ecartee", "qualifiee"},      # qualifiee : réécrite pour le test suivant (phase de test)
+    "manuelle": {"envoyee", "ecartee", "qualifiee"},
     "envoyee": {"relancee", "refus", "entretien"},
     "relancee": {"refus", "entretien", "sans_reponse"},
     "entretien": {"refus", "offre_recue"},
