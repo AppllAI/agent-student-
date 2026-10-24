@@ -52,6 +52,8 @@ class Circuit(unittest.TestCase):
         outils.telecharger = _hors_ligne
         sources._get_json = _hors_ligne                         # aucun vrai site pendant les tests
         sources._jobspy = lambda dom: []                        # ni Indeed ni Google
+        from agent_student.agents import connecteurs
+        connecteurs._get = connecteurs._post = _hors_ligne      # ni EURES, ni Forem, ni recruteurs
         orchestrateur.en_fond = lambda f, *a: f(*a)             # tout en synchrone
         orchestrateur.envoyer_bientot = orchestrateur._envoyer
         orchestrateur.declencher = lambda: None
@@ -472,6 +474,93 @@ class CanalApp(unittest.TestCase):
                 break
             t.sleep(0.1)
         self.assertEqual(recus[0].texte, "salut")
+
+
+class Connecteurs(unittest.TestCase):
+    """Les sources communes à tous les agents, lues hors ligne avec des réponses enregistrées."""
+    DOM = {"mots_cles_recherche": ["juriste Bruxelles"], "postes_vises": ["juriste"], "villes": ["Bruxelles"]}
+
+    def setUp(self):
+        from agent_student.agents import connecteurs
+        self.c = connecteurs
+        self.anciens = (connecteurs._get, connecteurs._post)
+
+    def tearDown(self):
+        self.c._get, self.c._post = self.anciens
+
+    @staticmethod
+    def reponse(donnees=None, contenu=b""):
+        return type("R", (), {"json": lambda self: donnees, "content": contenu})()
+
+    def test_eures(self):
+        import time as t
+        recent = int(t.time() * 1000) - 86400000
+        vieux = recent - 40 * 86400000
+        envoye = {}
+
+        def faux(url, corps):
+            envoye.update(corps)
+            return self.reponse({"jvs": [
+                {"id": "AB1", "title": "Jurist", "creationDate": recent, "employer": {"name": "Cabinet Nord"},
+                 "translations": {"nl": {"title": "Jurist vastgoed", "description": "<p>Dossiers</p>"}}},
+                {"id": "AB2", "title": "Orderpicker", "creationDate": recent, "translations": {}},     # hors sujet
+                {"id": "AB3", "title": "Juriste", "creationDate": vieux, "translations": {}}]})        # trop vieille
+        self.c._post = faux
+        o = self.c.eures(self.DOM)
+        self.assertEqual([x["titre"] for x in o], ["Jurist vastgoed"])
+        self.assertEqual(envoye["locationCodes"], ["be1"])                    # Bruxelles → région be1
+        self.assertEqual(envoye["keywords"][0]["keyword"], "juriste")         # la ville est filtrée à part
+        self.assertIn("jv-details/AB1", o[0]["url"])
+
+    def test_forem(self):
+        from datetime import date
+        self.c._get = lambda url, **k: self.reponse({"results": [{
+            "numerooffreforem": "1", "titreoffre": "Juriste (H/F/X)", "nomemployeur": "Ville de Namur",
+            "lieuxtravaillocalite": "Namur", "typecontrat": "CDI", "langues": ["Français"], "source": "Jobat",
+            "datedebutdiffusion": date.today().isoformat(), "url": "https://www.leforem.be/offre/1"}]})
+        o = self.c.forem(self.DOM)
+        self.assertEqual((o[0]["entreprise"], o[0]["source"]), ("Ville de Namur", "forem"))
+        self.assertIn("Jobat", o[0]["description"])
+
+    def test_recruteurs_decouverts_puis_surveilles(self):
+        from datetime import date
+        trouves = self.c.detecter_ats('<a href="https://boards.greenhouse.io/lumenlaw">Jobs</a> '
+                                      "https://jobs.lever.co/nordlex/abc https://acme.recruitee.com/o/juriste")
+        self.assertEqual(trouves, {("greenhouse", "lumenlaw"), ("lever", "nordlex"), ("recruitee", "acme")})
+        db.kv_set("tableaux_ats", None)
+        self.c.noter_ats({("greenhouse", "lumenlaw")}, "test")
+        self.c._get = lambda url, **k: self.reponse({"jobs": [
+            {"title": "Juriste corporate", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/1",
+             "location": {"name": "Brussels, Belgium"}, "first_published": date.today().isoformat(), "content": "&lt;p&gt;Droit&lt;/p&gt;"},
+            {"title": "Juriste", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/2",
+             "location": {"name": "New York"}, "first_published": date.today().isoformat()},               # hors Belgique
+            {"title": "Office manager", "absolute_url": "https://boards.greenhouse.io/lumenlaw/jobs/3",
+             "location": {"name": "Brussels"}, "first_published": date.today().isoformat()}]})              # hors sujet
+        o = self.c.ats(self.DOM)
+        self.assertEqual([x["url"] for x in o], ["https://boards.greenhouse.io/lumenlaw/jobs/1"])
+        self.assertEqual(o[0]["description"], "Droit")
+
+    def test_alerte_linkedin(self):
+        texte = ("Vos alertes emploi\n\nJuriste en droit des sociétés\nCabinet Delta\nBruxelles, Belgique\n"
+                 "Voir l'offre : https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=x\n\n"
+                 "Stagiaire avocat\nLumen Law\nNamur\nhttps://www.linkedin.com/comm/jobs/view/4012345679/\n")
+        o = self.c.offres_d_une_alerte("LinkedIn <jobalerts-noreply@linkedin.com>", "Nouvelles offres", texte)
+        self.assertEqual([(x["titre"], x["entreprise"], x["ville"]) for x in o],
+                         [("Juriste en droit des sociétés", "Cabinet Delta", "Bruxelles, Belgique"),
+                          ("Stagiaire avocat", "Lumen Law", "Namur")])
+        self.assertEqual(o[0]["url"], "https://www.linkedin.com/jobs/view/4012345678")
+        self.assertTrue(self.c.lecture_interdite(o[0]["url"]))            # jamais ouvert automatiquement
+
+    def test_alerte_transferee_entre_dans_le_circuit(self):
+        m = EmailMessage()
+        m["From"], m["Subject"], m["Message-ID"] = "alex.test@exemple.be", "Fwd: alertes LinkedIn", "<alerte1@x>"
+        m.set_content("Juriste immobilier\nCabinet Alerte Un\nBruxelles\nhttps://www.linkedin.com/jobs/view/111/\n"
+                      "Juriste fiscal\nCabinet Alerte Deux\nLiège\nhttps://www.linkedin.com/jobs/view/222/\n")
+        (config.DONNEES / "boite_simulee").mkdir(parents=True, exist_ok=True)
+        (config.DONNEES / "boite_simulee" / "alerte.eml").write_bytes(bytes(m))
+        trieur.relever()
+        self.assertEqual(offre("Cabinet Alerte Un")["source"], "alerte")
+        self.assertEqual(db.q1("SELECT categorie FROM emails_recus WHERE uid='<alerte1@x>'")["categorie"], "alerte")
 
 
 class SitesEtEmails(unittest.TestCase):

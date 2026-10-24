@@ -181,6 +181,7 @@ def lire_site(dom: str, limite: int = 9000, delai: int = 8) -> tuple[str, list[s
     for chemin, page in zip(PAGES_UTILES, pages):
         if not page:
             continue
+        _signaler_ats(page, dom)
         for e in emails_dans(unquote(html.unescape(page))):          # aussi dans l'en-tête / le pied de page
             if e not in emails:
                 emails.append(e)
@@ -189,6 +190,18 @@ def lire_site(dom: str, limite: int = 9000, delai: int = 8) -> tuple[str, list[s
             debuts.add(t[:200])
             textes.append(f"[{dom}{chemin or '/'}]\n{t}")
     return "\n\n".join(textes)[:limite], emails
+
+
+def _signaler_ats(page: str, dom: str):
+    """Une page carrières hébergée par un logiciel de recrutement, repérée sur le site d'un employeur, est ensuite
+    surveillée gratuitement à chaque veille (voir agents/connecteurs.py)."""
+    try:
+        from .agents import connecteurs
+        trouves = connecteurs.detecter_ats(page)
+        if trouves:
+            connecteurs.noter_ats(trouves, f"site de {dom}")
+    except Exception:
+        pass
 
 
 def _meme_domaine(a: str, b: str) -> bool:

@@ -51,6 +51,25 @@ def _corps(msg) -> str:
     return html_
 
 
+def _html(msg) -> str:
+    for p in (msg.walk() if msg.is_multipart() else [msg]):
+        if p.get_content_type() == "text/html" and p.get_content_disposition() != "attachment":
+            charge = p.get_payload(decode=True)
+            if charge:
+                return charge.decode(p.get_content_charset() or "utf-8", "replace")
+    return ""
+
+
+def _alerte(exp, sujet, corps, msg) -> int | None:
+    """Alerte emploi (LinkedIn, Jobat, StepStone, Indeed…), reçue directement ou transférée par la personne :
+    chaque offre de l'email entre dans le circuit, sans jamais ouvrir ces sites. Renvoie le nombre d'offres, ou None."""
+    from . import connecteurs, sources
+    offres = connecteurs.offres_d_une_alerte(exp, sujet, corps, _html(msg))
+    if not offres or (not connecteurs.est_alerte(exp) and len(offres) < 2):
+        return None
+    return sources.enregistrer(offres)
+
+
 def _relier(msg, expediteur):
     refs = f"{msg.get('In-Reply-To', '')} {msg.get('References', '')}"
     for mid in re.findall(r"<[^>]+>", refs):
@@ -112,6 +131,11 @@ def relever():
         moi = (config.env("EMAIL_ADRESSE") or "").lower()
         if moi and moi in exp.lower():          # nos propres emails (répétitions, copies) : ignorés, 0 token
             _stocker(uid, None, exp, sujet, corps, "autre", {})
+            continue
+        n = _alerte(exp, sujet, corps, msg)
+        if n is not None:                          # alerte emploi : des offres, pas une réponse de recruteur
+            _stocker(uid, None, exp, sujet, corps[:2000], "alerte", {"offres": n})
+            db.journal("trieur", f"alerte emploi lue ({exp[:40]}) : {n} nouvelle(s) offre(s)")
             continue
         offre_id = _relier(msg, exp)
         if offre_id is None and not MOTS.search(f"{sujet} {corps[:1500]}"):

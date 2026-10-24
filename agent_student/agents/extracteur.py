@@ -42,8 +42,21 @@ def enrichir(limite: int = 40):
 
 def _enrichir_une(o: dict):
     """Lit la page de l'offre et complète ce qui manque (JSON-LD gratuit d'abord, IA rapide ensuite)."""
+    from . import connecteurs
     page = ""
-    if o["url"] and o["url"].startswith("http"):
+    if o.get("source") == "eures":
+        # EURES : la page est une application JavaScript, mais son API publique donne tout le détail
+        try:
+            for k, v in connecteurs.detail_eures(o["url"]).items():
+                if v and k in CLES and (not o.get(k) or k in ("description", "langue")):
+                    o[k] = v
+                elif v and k == "lien_candidature":
+                    o["description"] = f"{o.get('description') or ''}\nPour postuler : {v}".strip()
+        except Exception as e:
+            db.journal("extracteur", f"détail EURES indisponible ({type(e).__name__})", o["id"])
+    elif connecteurs.lecture_interdite(o["url"]):
+        pass        # LinkedIn, Jobat, StepStone : jamais lus automatiquement (CGU) — l'alerte suffit
+    elif o["url"] and o["url"].startswith("http"):
         try:
             page = outils.telecharger(o["url"])
         except Exception as e:
