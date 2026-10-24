@@ -68,8 +68,6 @@ OUTILS = [
     {"name": "ajouter_au_profil", "description": "Ajoute un FAIT qu'elle affirme sur elle (langue, expérience, "
      "permis, nouveau numéro…) à sa fiche profil.",
      "input_schema": {"type": "object", "properties": {"fait": {"type": "string"}}, "required": ["fait"]}},
-    {"name": "regle_de_style", "description": "Retient une préférence d'écriture pour toutes les lettres suivantes.",
-     "input_schema": {"type": "object", "properties": {"consigne": {"type": "string"}}, "required": ["consigne"]}},
     {"name": "diagnostic", "description": "Vérifie que tout marche : clé IA, crédit, boîte mail (envoi + lecture), "
      "CV, adresse de test, pause, budget. À utiliser quand « ça ne marche pas » ou « rien ne se passe ».",
      "input_schema": {"type": "object", "properties": {}}},
@@ -208,8 +206,6 @@ def executer(nom: str, a: dict) -> str:
             coach.parler(a["consigne"])
         elif nom == "ajouter_au_profil":
             coach.completer_profil(a["fait"])
-        elif nom == "regle_de_style":
-            concierge.noter_style(a["consigne"])
         elif nom == "diagnostic":
             from . import diagnostic
             return diagnostic.rapport(envoyer=False)
@@ -274,7 +270,7 @@ def repondre(texte: str):
         return messagerie.dire(finale) if finale else None
     contexte = json.dumps(_etat(), ensure_ascii=False)
     messages = [{"role": "user", "content": f"Contexte actuel :\n{contexte}\n\nHistorique récent :\n"
-                 f"{json.dumps(db.historique(10), ensure_ascii=False)}\n\nSon message :\n{texte}"}]
+                 f"{json.dumps(db.historique(6), ensure_ascii=False)}\n\nSon message :\n{texte}"}]
     try:
         finale = llm.agir("manager", "qualite", _systeme(), messages, OUTILS, executer)
     except llm.BudgetDepasse as e:

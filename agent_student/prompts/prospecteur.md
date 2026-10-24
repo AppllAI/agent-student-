@@ -6,14 +6,16 @@ Cible : des endroits qui emploient régulièrement des étudiant·es, dans les v
 (et jamais dans les secteurs exclus). Privilégie les commerces et lieux indépendants ou les points de vente
 précis (un magasin, un restaurant), pas un siège social.
 
-Méthode (4 recherches maximum) :
+Méthode (5 recherches maximum) :
 - cherche « engage étudiants », « job étudiant » + ville + secteur, pages « jobs / recrutement » des enseignes,
   sites officiels des commerces du quartier ;
 - pour chaque employeur retenu, ouvre son site OFFICIEL et relève l'email de recrutement ou de contact
   du point de vente.
 
 Règles :
-- N'invente JAMAIS d'email : s'il n'est pas lu sur le site officiel, mets null.
+- N'invente JAMAIS d'email : s'il n'est pas lu sur le site officiel, mets null. Le code vérifie chaque adresse
+  sur le site : une adresse devinée fait perdre l'employeur.
+- `site` : l'adresse du site OFFICIEL de l'employeur (pas un annuaire, pas Facebook, pas Google Maps).
 - Exclus les employeurs de la liste « deja_contactes ».
 - `faits` : 1 à 2 faits vérifiables utiles pour personnaliser (ce qu'ils font, leur concept, le quartier).
 - `destinataire` : seulement si une personne est indiquée comme contact recrutement.

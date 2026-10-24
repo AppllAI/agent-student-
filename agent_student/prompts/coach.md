@@ -30,8 +30,6 @@ Déroulé :
 - `objectif_maj` : uniquement les champs nouveaux ou modifiés par CE message.
 - Si le profil n'a pas de ligne « Accords », demande une fois : « Pour tes messages aux employeurs, j'écris au
   masculin ou au féminin ? ». Sa réponse sera ajoutée au profil automatiquement (champ `accords`).
-- Si elle exprime une préférence de STYLE (ton, longueur, ce qu'il faut mettre en avant), reprends-la dans
-  `reponse` et dis-lui qu'elle pourra la redire à tout moment.
 - Le récap final rappelle qu'on démarre en mode test (chaque candidature arrive sur l'email de son CV, rien chez
   les employeurs, silence ici) et, au besoin, qu'en
   Belgique le contrat étudiant à cotisations réduites vaut pour 650 heures par an (vérifiable sur Student@work).

@@ -22,7 +22,7 @@ SCHEMA = {
     "properties": {
         "action": {"type": "string", "enum": [
             "valider", "ecarter", "details", "confirmer_rdv", "autre_date", "decliner_rdv", "repondre_recruteur",
-            "objectif", "profil", "style", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre", "vrai_tout",
+            "objectif", "profil", "fait", "chercher", "essai", "banc", "stats", "pause", "reprendre", "vrai_tout",
             "aide", "discuter"]},
         "ids": {"type": "array", "items": {"type": "integer"}},
         "rdv_id": {"type": ["integer", "null"]}, "creneau": {"type": ["string", "null"]},
@@ -203,7 +203,7 @@ def _ia(texte: str):
         # Sonnet : c'est lui qui te comprend, la qualité compte plus que la petite différence de prix
         d = llm.demander("concierge", "qualite", llm.prompt("concierge"),
                          json.dumps({"contexte": _contexte(), "aujourd_hui": __import__("datetime").date.today().isoformat(),
-                                    "historique": db.historique(8), "message": texte},
+                                    "historique": db.historique(6), "message": texte},
                                     ensure_ascii=False), SCHEMA, max_tokens=700, reflexion=False)
     except llm.BudgetDepasse as e:
         return messagerie.dire(f"{e}. Les commandes et boutons marchent toujours ; l'IA reprend demain.")
@@ -227,8 +227,6 @@ def _ia(texte: str):
             return coach.parler(texte)
         elif a == "profil":
             return coach.completer_profil(texte)
-        elif a == "style":
-            return noter_style(d.get("texte") or texte)
         elif a == "fait":
             return _fait(ids)
         elif a == "chercher":
@@ -305,23 +303,12 @@ def details(i):
     if not o:
         return messagerie.dire(f"Pas d'offre n°{i}.")
     texte, boutons = carte(o)
-    messagerie.dire(f"{texte}\n{o['url']}\n\n✉️ *{o['objet_mail'] or '—'}*\n{o['corps_mail'] or ''}\n\n— Lettre —\n"
-                    f"{(o['lettre'] or '(pas encore écrite)')[:2800]}",
+    # La lettre voyage en PDF (comme chez l'employeur), pas recopiée dans le message
+    email = f"\n\n✉️ *{o['objet_mail']}*\n{o['corps_mail'] or ''}" if o["objet_mail"] else ""
+    messagerie.dire(f"{texte}\n{o['url']}{email}" + ("" if o["lettre"] else "\n\n(lettre pas encore écrite)"),
                     boutons if o["statut"] in ("a_valider", "repetee") else None)
     if o["lettre"]:
-        messagerie.fichier(chemin_lettre(i), "Lettre de motivation")
-    if o["statut"] in ("a_valider", "repetee"):
-        messagerie.dire("Pas parfaite ? Dis-moi ce qui ne va pas (« trop longue », « parle plus de mon mémoire »…), "
-                        "je retiens pour toutes les prochaines lettres.")
-
-
-def noter_style(remarque: str):
-    """Tes remarques de style s'appliquent à TOUTES les lettres suivantes (apprentissage continu)."""
-    f = config.PROFIL_DIR / "style.md"
-    f.parent.mkdir(parents=True, exist_ok=True)
-    with open(f, "a", encoding="utf-8") as fh:
-        fh.write(f"- {remarque.strip()}\n")
-    messagerie.dire("Noté : toutes les prochaines lettres en tiendront compte.")
+        messagerie.fichier(chemin_lettre(i), "Lettre de motivation (PDF)")
 
 
 def regler_budget(euros: float):
@@ -392,9 +379,9 @@ def _banc():
     texte = f.read_text(encoding="utf-8")
     note = re.search(r"Note moyenne du Juge : ([\d.]+)/10\** · coût : ([\d.]+) €", texte)
     messagerie.dire(f"Test terminé : note moyenne {note.group(1)}/10, coût {note.group(2)} €. "
-                    "Le rapport complet (les 5 lettres) est ci-dessous. Dis-moi ce qui te plaît ou pas, j'apprends.\n"
+                    "Le rapport complet (les 5 lettres) est dans le PDF ci-dessous.\n"
                     "Ensuite : envoie-moi « essai » + le lien d'une vraie offre.")
-    messagerie.fichier(f, "Rapport du test")
+    messagerie.fichier(f.with_suffix(".pdf") if f.with_suffix(".pdf").exists() else f, "Rapport du test (PDF)")
 
 
 def _fait(ids):

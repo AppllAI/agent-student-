@@ -78,7 +78,8 @@ def problemes(o) -> list[str]:
     lettre, corps, objet = o.get("lettre") or "", o.get("corps_mail") or "", o.get("objet_mail") or ""
     if not (lettre and corps and objet):
         return ["lettre ou email vide"]
-    sources = f"{config.profil_texte()}\n{o.get('titre') or ''}\n{o.get('entreprise') or ''}\n{o.get('description') or ''}"
+    sources = (f"{config.profil_texte()}\n{o.get('titre') or ''}\n{o.get('entreprise') or ''}\n"
+               f"{o.get('description') or ''}\n{o.get('infos_cabinet') or ''}")
     inventes = chiffres_inventes(f"{lettre}\n{corps}", sources) if config.profil_texte().strip() else []
     if inventes:
         return [f"chiffre(s) absent(s) de ton profil : {', '.join(inventes[:3])}"]
@@ -96,8 +97,10 @@ def problemes(o) -> list[str]:
     if TROUS.search(lettre) or TROUS.search(corps):
         p.append(f"texte à trous : « {(TROUS.search(lettre) or TROUS.search(corps)).group(0)} »")
     mots = len(lettre.split())
-    if not 110 <= mots <= 320:
+    if not 110 <= mots <= 360:
         p.append(f"longueur anormale ({mots} mots)")
+    if len(corps.split()) > 200:              # la lettre voyage en PDF joint, pas dans le corps de l'email
+        p.append("l'email est trop long (il recopie la lettre ?)")
     if o.get("email_contact") and not outils.RE_EMAIL.fullmatch(o["email_contact"].strip()):
         p.append("adresse du destinataire invalide")
     if not config.chemin_cv().exists():

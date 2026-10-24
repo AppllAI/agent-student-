@@ -9,9 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .. import config, db, llm, messagerie, outils
-from . import evaluateur, extracteur, garde
-from .enqueteur import SCHEMA as SCHEMA_ENQUETE
+from .. import config, db, llm, messagerie, outils, pdf
+from . import enqueteur, evaluateur, extracteur, garde
 from .redacteur import ecrire_pdf, ecrire_une
 
 BANC = Path(__file__).resolve().parent.parent / "banc_essai.json"
@@ -55,13 +54,10 @@ def analyser(o: dict) -> dict:
         return rapport
     if o.get("entreprise") and o["source"] != "spontanee" and not o.get("fictif"):
         try:
-            e = llm.demander("enqueteur", "rapide", llm.prompt("enqueteur"),
-                             json.dumps({"employeur": o["entreprise"], "ville": o.get("ville"), "poste": o.get("titre"),
-                                         "url_offre": o.get("url"), "email_connu": o.get("email_contact")},
-                                        ensure_ascii=False), SCHEMA_ENQUETE, web=True, recherches_max=2, max_tokens=1200)
-            o["infos_cabinet"] = json.dumps({"faits": e.get("faits", []), "destinataire": e.get("destinataire")},
-                                            ensure_ascii=False)
-            o["email_contact"] = o.get("email_contact") or (outils.emails_dans(e.get("email_recrutement") or "") or [None])[0]
+            infos, email = enqueteur.enquete(o["entreprise"], o.get("ville"), o.get("titre"), o.get("url"),
+                                             o.get("email_contact"))
+            o["infos_cabinet"] = json.dumps(infos, ensure_ascii=False)
+            o["email_contact"] = o.get("email_contact") or email
         except llm.BudgetDepasse:
             raise
         except Exception as ex:
@@ -71,7 +67,7 @@ def analyser(o: dict) -> dict:
     return rapport
 
 
-def texte_rapport(r: dict) -> str:
+def texte_rapport(r: dict, avec_lettre: bool = True) -> str:
     o, n, c = r["offre"], r["evaluation"], r["candidature"]
     garde_txt = f"🚫 Tes règles l'excluent : {r['garde']}" if r["garde"] else "✅ Respecte tes règles"
     regle = " (règle stricte violée)" if n.get("regle_violee") else ""
@@ -83,7 +79,8 @@ def texte_rapport(r: dict) -> str:
     envoi = f"📧 {o['email_contact']}" if o.get("email_contact") else "🌐 formulaire sur leur site"
     remarques = f"\nRemarques : {'; '.join(c['corrections'][:3])}" if c["corrections"] else ""
     return (tete + f"Lettre : {c['note']}/10 selon le Juge{remarques}\nEnvoi : {envoi}\n\n"
-            f"✉️ *{c['objet']}*\n{c['email']}\n\n— Lettre —\n{c['lettre']}")
+            f"✉️ *{c['objet']}*\n{c['email']}" + (f"\n\n— Lettre —\n{c['lettre']}" if avec_lettre else
+                                                   "\n\nLa lettre est dans le PDF ci-dessous."))
 
 
 def essayer(url: str):
@@ -113,10 +110,11 @@ def essayer(url: str):
             oid = cur.lastrowid if cur.rowcount else None
         if oid:
             (config.DONNEES / "lettres").mkdir(parents=True, exist_ok=True)
-            ecrire_pdf(c["lettre"], config.DONNEES / "lettres" / f"lettre_{oid}.pdf")
+            ecrire_pdf(c.get("structure") or c["lettre"], config.DONNEES / "lettres" / f"lettre_{oid}.pdf")
+            db.maj(oid, lettre_json=json.dumps(c["structure"], ensure_ascii=False) if c.get("structure") else None)
             boutons = [[("✅ L'envoyer", f"ok {oid}"), ("❌ Non merci", f"ecarte {oid}")]]
-    messagerie.dire(texte_rapport(r)[:3900], boutons)
-    messagerie.fichier(ecrire_pdf(c["lettre"], dossier / "essai_lettre.pdf"), "Lettre (essai)")
+    messagerie.dire(texte_rapport(r, avec_lettre=False)[:3900], boutons)
+    messagerie.fichier(ecrire_pdf(c.get("structure") or c["lettre"], dossier / "essai_lettre.pdf"), "Lettre (essai)")
 
 
 def banc_essai() -> Path:
@@ -148,4 +146,6 @@ def banc_essai() -> Path:
     f = config.DONNEES / "banc_essai.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lignes), encoding="utf-8")
+    pdf.document("Banc d'essai — qualité des candidatures", "\n".join(lignes[1:]).replace("**", ""),
+                 f.with_suffix(".pdf"))                      # le rapport voyage en PDF
     return f

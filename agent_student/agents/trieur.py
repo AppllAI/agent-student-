@@ -123,7 +123,7 @@ def relever():
             a = llm.demander("trieur", "rapide", llm.prompt("trieur"),
                              json.dumps({"date_email": date_mail, "de": exp, "sujet": sujet, "corps": corps,
                                          "offre_liee": _resume_offre(offre_id)}, ensure_ascii=False),
-                             SCHEMA, max_tokens=500)
+                             SCHEMA, max_tokens=500, reflexion=False, effort="low")
         except llm.BudgetDepasse:
             return
         except Exception as e:

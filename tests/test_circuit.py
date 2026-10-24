@@ -96,11 +96,17 @@ class Circuit(unittest.TestCase):
         sortis = emails_sortis()
         self.assertEqual(len(sortis), 3)                                   # y compris l'offre « via leur site »
         import email
+        import email.policy
         for f in sortis:
-            m = email.message_from_bytes(f.read_bytes())
+            m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
             self.assertEqual(m["To"], "alex.test@exemple.be")             # l'adresse du CV, jamais l'employeur
-            self.assertIn("[TEST n°", str(email.header.make_header(email.header.decode_header(m["Subject"]))))
-            self.assertEqual(len([p for p in m.walk() if p.get_filename()]), 2)   # CV + lettre
+            self.assertIn("[TEST n°", m["Subject"])
+            joints = [p for p in m.walk() if p.get_filename()]
+            self.assertEqual(len(joints), 3)                              # CV + lettre + rapport de test
+            self.assertTrue(all(p.get_content_type() == "application/pdf" for p in joints))
+            self.assertTrue(all(p.get_content_disposition() == "attachment" for p in joints))
+            corps = m.get_body(("plain",)).get_content()
+            self.assertNotIn("Je vous prie d'agréer", corps)              # la lettre n'est PAS dans l'email
         orchestrateur.pipeline()                                           # 2e passage : aucun doublon
         self.assertEqual(db.q1("SELECT COUNT(*) AS n FROM offres")["n"], 5)
 
@@ -172,8 +178,6 @@ class Circuit(unittest.TestCase):
         db.kv_set("pause_jusqu", "2000-01-01")                         # la date est passée → reprise seule
         self.assertFalse(orchestrateur.en_pause())
         self.assertFalse(db.kv_get("pause"))
-        concierge.recevoir(Entrant(texte="mes lettres sont trop longues"))
-        self.assertIn("180 mots", config.style_texte())
         concierge.recevoir(Entrant(texte="mode validation"))
         self.assertEqual(config.regles_envoi()["mode"], "validation")
         self.assertNotIn("🧪", self.dernier())
@@ -181,7 +185,7 @@ class Circuit(unittest.TestCase):
     def test_7_test_en_langage_naturel(self):
         concierge.recevoir(Entrant(texte="j'aimerais d'abord essayer pour voir si ça marche"))
         self.assertTrue(any("Test terminé" in m for m in self.canal.messages[-3:]))
-        self.assertTrue(any(f.name == "banc_essai.md" for f in self.canal.fichiers))
+        self.assertTrue(any(f.name == "banc_essai.pdf" for f in self.canal.fichiers))
         concierge.recevoir(Entrant(texte="aide"))
         self.assertIn("teste-toi", self.dernier())
 
@@ -341,6 +345,57 @@ class Outils(unittest.TestCase):
 
     def test_banc_valide(self):
         self.assertEqual(len(json.loads(essai.BANC.read_text(encoding="utf-8"))), 5)
+
+
+class SitesEtEmails(unittest.TestCase):
+    """Les bonnes infos sur les bons sites, et aucune adresse email devinée."""
+
+    def test_domaine_officiel(self):
+        self.assertEqual(outils.domaine_officiel("https://www.student.be/fr/x", "jobs@lumen-shop.be"), "lumen-shop.be")
+        self.assertEqual(outils.domaine_officiel("https://www.delta-store.be/jobs/vendeur", None), "delta-store.be")
+        self.assertEqual(outils.domaine_officiel("https://fr.studentjob.be/offre/1", "alex@gmail.com"), "")
+
+    def test_email_verifie_par_le_code(self):
+        pages = {"https://boutique-x.be": "<p>Boutique X</p> <a href='mailto:recrutement@boutique-x.be'>",
+                 "https://boutique-x.be/contact": "info@boutique-x.be"}
+        ancien = outils.telecharger
+        outils.telecharger = lambda u, timeout=20: pages.get(u.rstrip("/"), "") or _hors_ligne()
+        try:
+            # lue sur le site → gardée ; devinée → remplacée par celle que le site publie vraiment
+            self.assertEqual(outils.verifier_email("recrutement@boutique-x.be", "Boutique X"), "recrutement@boutique-x.be")
+            self.assertEqual(outils.verifier_email("jobs@boutique-x.be", "Boutique X"), "recrutement@boutique-x.be")
+            self.assertIsNone(outils.verifier_email("jobs@gmail.com", "Boutique X"))
+            self.assertIsNone(outils.verifier_email("rh@inconnu-sans-site.be", "Boutique X"))
+        finally:
+            outils.telecharger = ancien
+        # site officiel connu mais illisible : le domaine officiel fait foi
+        self.assertEqual(outils.verifier_email("stage@horizon.be", "Horizon", "horizon.be"), "stage@horizon.be")
+
+    def test_recherche_web_ciblee(self):
+        from agent_student import llm
+        o = llm._recherche_web("claude-haiku-5-5", 2, None, ["student.be"])
+        self.assertEqual(o["type"], "web_search_20250305")
+        self.assertIn("student.be", o["blocked_domains"])
+        o = llm._recherche_web("claude-sonnet-5-5", 2, ["boutique.be"], ["student.be"])
+        self.assertEqual((o["type"], o["allowed_domains"]), ("web_search_20260209", ["boutique.be"]))
+        self.assertNotIn("blocked_domains", o)                      # jamais les deux à la fois
+        self.assertFalse(llm._forcer("claude-sonnet-5-5"))
+        self.assertTrue(llm._forcer("claude-haiku-5-5"))
+
+    def test_lettre_toujours_en_pdf(self):
+        from agent_student import pdf
+        from agent_student.agents.redacteur import chemin_lettre
+        with db.tx() as c:          # lettre d'une ancienne version : texte seulement, pas de PDF
+            oid = c.execute("INSERT INTO offres (cle, url, titre, lettre, statut) VALUES "
+                            "('ancienne', 'https://x.be/1', 'Poste', 'Madame, Monsieur,\n\nTexte.', 'a_valider')").lastrowid
+        f = chemin_lettre(oid)
+        self.assertEqual(f.suffix, ".pdf")
+        self.assertTrue(f.read_bytes().startswith(b"%PDF"))
+        l = {"expediteur": ["Alex Test"], "lieu_date": "Bruxelles, le 1er mars 2027", "objet_lettre": "Candidature",
+             "appel": "Madame, Monsieur,", "paragraphes": ["Un.", "Deux."], "politesse": "Salutations.",
+             "signature": "Alex Test"}
+        self.assertIn("Objet : Candidature\n\nMadame, Monsieur,\n\nUn.\n\nDeux.", pdf.texte_lettre(l))
+        self.assertNotIn("🎯", pdf.propre("Fiche 🎯 **gras**"))
 
 
 class ZRobustesse(unittest.TestCase):

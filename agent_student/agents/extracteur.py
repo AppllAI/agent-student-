@@ -47,6 +47,10 @@ def _enrichir_une(o: dict):
         try:
             page = outils.telecharger(o["url"])
         except Exception as e:
+            statut = getattr(getattr(e, "response", None), "status_code", None)
+            if statut in (404, 410):          # annonce retirée : inutile d'insister ni de payer quoi que ce soit
+                db.changer_statut(o["id"], "ecartee", "extracteur", "annonce retirée (page introuvable)")
+                return
             db.journal("extracteur", f"page illisible ({type(e).__name__}), on garde le résumé", o["id"])
     jp = outils.jobposting_jsonld(page) if page else None
     if jp:
@@ -66,7 +70,7 @@ def _enrichir_une(o: dict):
                              json.dumps({"url": o["url"], "date_du_jour": date.today().isoformat(),
                                          "deja_connu": {k: o.get(k) for k in CLES},
                                          "page": texte or o.get("description")}, ensure_ascii=False),
-                             SCHEMA, max_tokens=900)
+                             SCHEMA, max_tokens=900, reflexion=False, effort="low")   # extraire : pas besoin de réfléchir
             for k in (*CLES, "mode_candidature"):
                 if r.get(k) and (not o.get(k) or (k == "titre" and o.get("source") == "liste" and not jp)):
                     o[k] = r[k]

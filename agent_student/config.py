@@ -91,12 +91,6 @@ def regles_envoi() -> dict:
 
 
 # ---------- Profil ----------
-def style_texte() -> str:
-    """Tes retours sur le style des lettres (« trop formel », « plus court »…), appris au fil du temps."""
-    f = PROFIL_DIR / "style.md"
-    return f.read_text(encoding="utf-8") if f.exists() else ""
-
-
 def profil_texte() -> str:
     """Le profil (tiré du CV) + tes disponibilités déclarées : c'est la SEULE source de vérité des messages.
     Les disponibilités en font partie, pour que le Juge puisse vérifier « disponible le samedi » contre ce que tu as dit."""

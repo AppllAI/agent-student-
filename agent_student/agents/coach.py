@@ -50,7 +50,6 @@ MENU = ("📋 *Ce que tu peux me dire* (ou en vocal 🎙️, avec tes mots) :\n"
         "• « essai » + un lien d'annonce → je te montre ce que je ferais, sans envoyer\n"
         "• « teste-toi » → 5 candidatures d'exemple notées, pour juger ma qualité\n"
         "• « pas d'horeca », « ajoute Louvain-la-Neuve », « libre aussi le dimanche » → changer ta recherche\n"
-        "• « trop long », « plus simple » → régler le style\n"
         "• « pause jusqu'au 20 juin » (blocus, vacances) → je reprends tout seul ce jour-là\n"
         "• « j'ai trouvé un job » · « cherche » · « stats » · « reprendre » · « mode »")
 
@@ -71,7 +70,7 @@ def parler(texte: str):
     actif = o.get("domaine_actif", "job_etudiant")
     dom = o.setdefault("domaines", {}).setdefault(actif, {})
     contexte = {"objectif_actuel": dom, "cv_recu": config.chemin_cv().exists() and bool(config.profil_texte().strip()),
-                "profil": config.profil_texte()[:1500], "historique": db.historique(10), "message": texte}
+                "profil": config.profil_texte()[:1500], "historique": db.historique(6), "message": texte}
     try:
         r = llm.demander("coach", "rapide", llm.prompt("coach"), json.dumps(contexte, ensure_ascii=False),
                          SCHEMA_COACH, max_tokens=900)
@@ -145,7 +144,7 @@ def completer_profil(texte: str):
     r = llm.demander("profileur", "rapide",
                      "Transforme ce que la personne dit sur elle en lignes factuelles de fiche profil "
                      "(« - Langues : néerlandais B2 »). Uniquement ce qu'elle affirme.",
-                     texte, SCHEMA_AJOUT, max_tokens=300)
+                     texte, SCHEMA_AJOUT, max_tokens=300, reflexion=False)
     f = config.PROFIL_DIR / "profil.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     with open(f, "a", encoding="utf-8") as fh:

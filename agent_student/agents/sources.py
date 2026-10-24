@@ -18,6 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 from .. import config, db, llm, outils
 
+# Déjà lus gratuitement : la recherche web (payante) ne doit pas y perdre une seule recherche
+DEJA_SURVEILLES = ["student.be", "studentjob.be", "indeed.com", "be.indeed.com"]
+
 SCHEMA_OFFRES = {
     "type": "object",
     "properties": {"offres": {"type": "array", "items": {
@@ -182,12 +185,14 @@ def _pages(dom: dict) -> list[dict]:
 
 # ---------- Éclaireur web (IA) ----------
 def _une_requete(requete: str, dom: dict, connues: list) -> list[dict]:
+    from datetime import date
     contenu = json.dumps({"requete": requete, "villes": dom.get("villes"), "postes": dom.get("postes_vises"),
                           "secteurs_uniquement": dom.get("secteurs_uniquement"),
                           "secteurs_exclus": dom.get("secteurs_exclus"), "langues": dom.get("langues"),
+                          "date_du_jour": date.today().isoformat(),
                           "deja_connues": connues, "nombre_max": 10}, ensure_ascii=False)
     r = llm.demander("eclaireur", "rapide", llm.prompt("eclaireur_web"), contenu, SCHEMA_OFFRES,
-                     web=True, recherches_max=2, max_tokens=4000, priorite="fond")
+                     web=True, recherches_max=3, max_tokens=4000, priorite="fond", sites_bloques=DEJA_SURVEILLES)
     offres = [{**o, "source": "web"} for o in r.get("offres", [])]
     bonnes = [o for o in offres if annonce_precise(o)]
     if len(bonnes) < len(offres):
@@ -211,7 +216,7 @@ def annonce_precise(o: dict) -> bool:
     return dernier not in _FIN_DE_LISTE
 
 
-def recherche_web(n_requetes: int = 1) -> int:
+def recherche_web(n_requetes: int = 2) -> int:
     dom = config.domaine_actif()
     requetes = dom.get("mots_cles_recherche") or []
     if not requetes:

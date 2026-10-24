@@ -45,6 +45,8 @@ et, idéalement, une **autre adresse email**. La clé API peut être la même.
 - **Pas de remplissage automatique de LinkedIn / Jobat / StepStone / Student.be** : interdit par leurs conditions.
   Pour ces offres, il te donne le lien + le message prêt, tu colles, tu réponds « fait 12 ».
 - **Il n'invente rien** : ni expérience, ni langue, ni **disponibilité**. Tout est vérifié contre ton profil.
+- **Rien dans le corps des emails** : CV et lettre partent toujours en **PDF joints** ; l'email reste court.
+- **Pas de mémoire (pour l'instant)** : il n'apprend pas tes préférences de style d'une candidature à l'autre.
 - **Pas de spam** : max 25 envois/jour, jamais deux fois le même employeur en 45 jours (`config/objectif.yaml`).
 
 ## Développeur
